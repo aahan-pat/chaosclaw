@@ -6,7 +6,23 @@
       "Bash(npm install:*)",
       "Bash(npx tsc:*)",
       "Bash(node:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(npm run:*)",
+      "Read(//Users/ritesh/.nvm/versions/node/**)",
+      "Bash(brew list:*)",
+      "Bash(command -v fnm)",
+      "Bash(fnm list:*)",
+      "Bash(command -v nvm)",
+      "Bash(nvm list:*)",
+      "Read(//usr/local/bin/**)",
+      "Read(//opt/homebrew/**)",
+      "Bash(~/.nvm/versions/node/v22.22.0/bin/node --version && ~/.nvm/versions/node/v22.22.0/bin/npm run build 2>&1)",
+      "Bash(~/.nvm/versions/node/v22.22.0/bin/node node_modules/.bin/tsdown 2>&1)",
+      "Bash(rm:*)",
+      "Bash(ls:*)",
+      "Bash(~/.nvm/versions/node/v22.22.0/bin/npm install:*)",
+      "Bash(~/.nvm/versions/node/v22.22.0/bin/node dist/index.mjs scenarios show deny-hostpath 2>&1)"
     ]
   }
 }

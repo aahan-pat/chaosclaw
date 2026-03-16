@@ -2,7 +2,13 @@
   "name": "chaosclaw",
   "version": "0.1.0",
   "description": "Deterministic CLI for Kubernetes Continuous Control Verification",
-  "keywords": ["kubernetes", "security", "verification", "policy", "chaos"],
+  "keywords": [
+    "kubernetes",
+    "security",
+    "verification",
+    "policy",
+    "chaos"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -10,7 +16,7 @@
   },
   "type": "module",
   "bin": {
-    "chaosclaw": "./dist/index.js"
+    "chaosclaw": "./dist/index.mjs"
   },
   "files": [
     "dist/",
@@ -30,6 +36,9 @@
     "@kubernetes/client-node": "^0.22.3",
     "chalk": "^5.6.2",
     "commander": "^14.0.3"
+  },
+  "optionalDependencies": {
+    "@rolldown/binding-darwin-arm64": "^1.0.0-rc.9"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
