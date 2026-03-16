@@ -953,6 +953,39 @@ This gives you the cleanest path to:
 * future multi-cluster expansion
 * a coherent product story
 
+---
+
+## 15. Implementation Language
+
+**Decision:** ChaosClaw is implemented in **TypeScript (Node.js ≥ 22.16.0)**.
+
+### Rationale
+
+ChaosClaw and OpenClaw are sibling products. OpenClaw is a TypeScript-first monorepo. This alignment provides:
+
+* **Shared JSON schema types** — The evidence schema can be a shared TypeScript package. No translation layer, no schema drift between the two products.
+* **Skill integration** — OpenClaw skills are TypeScript. ChaosClaw can be imported directly by skills as a library, not only invoked as a subprocess.
+* **Tooling alignment** — Same compiler (`tsc`/`tsdown`), test runner (`vitest`), linter (`oxlint`), and package manager (`pnpm`) as OpenClaw. Reduces toolchain fragmentation across the two products.
+* **Kubernetes client** — `@kubernetes/client-node` is the official Kubernetes JavaScript/TypeScript client, maintained by the Kubernetes sig-api-machinery team.
+
+### Distribution
+
+ChaosClaw is bundled to a single distributable using `tsdown`, aligned with OpenClaw's build pipeline. A Docker image is provided for environments without a Node.js runtime.
+
+### Tooling stack
+
+| Tool | Purpose |
+| --- | --- |
+| TypeScript | Language |
+| Node.js ≥ 22.16.0 | Runtime (aligned with OpenClaw) |
+| `commander` | CLI argument parsing |
+| `chalk` | Terminal color output |
+| `@kubernetes/client-node` | Kubernetes API client |
+| `tsdown` | Bundle to single distributable |
+| `tsx` | Development runner |
+| `vitest` | Test framework |
+| `oxlint` | Linter |
+
 ```
 
 This markdown is grounded in the current PRD’s MVP emphasis on **single-cluster execution, pass/fail reporting, and Kubernetes guardrail validation**, along with the proposal’s roadmap toward **multi-cluster orchestration**, **community/open scenario packs**, and later workflow automation. :contentReference[oaicite:0]{index=0} :contentReference[oaicite:1]{index=1} :contentReference[oaicite:2]{index=2}
