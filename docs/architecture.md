@@ -1,4 +1,3 @@
-````markdown
 # ChaosClaw Architecture
 ## Single-Cluster MVP and Multi-Cluster Evolution with OpenClaw
 

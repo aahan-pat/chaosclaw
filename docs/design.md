@@ -1,4 +1,3 @@
-````markdown id="1a2b3c"
 # ChaosClaw CLI Design Spec
 ## MVP UX and Interaction Design
 

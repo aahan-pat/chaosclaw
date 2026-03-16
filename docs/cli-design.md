@@ -1,4 +1,3 @@
-````markdown id="7n4q2m"
 # ChaosClaw CLI Terminal Screen Library
 ## MVP Canonical Output Examples
 
