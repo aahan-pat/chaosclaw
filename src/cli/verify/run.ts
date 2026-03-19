@@ -1,3 +1,6 @@
+// Implements the "chaosclaw verify run" command.
+// Orchestrates the full scenario execution pipeline: resolve scenarios → execute →
+// validate → cleanup → record evidence → print results.
 import * as k8s from '@kubernetes/client-node'
 import type { Command } from 'commander'
 import { ScenarioRegistry } from '../../core/registry.js'
@@ -14,6 +17,14 @@ import chalk from 'chalk'
 const DEFAULT_NAMESPACE = 'chaosclaw-tests'
 const DEFAULT_TIMEOUT_MS = 30_000
 
+/**
+ * Attaches the "run" subcommand to the given parent command.
+ * Exactly one of --pack or --scenario must be provided.
+ * Exit codes:
+ *   0 — all scenarios passed
+ *   1 — one or more scenarios failed or errored
+ *   4 — invalid arguments (missing/conflicting flags, unknown pack/scenario)
+ */
 export function registerRunCommand(verify: Command): void {
   verify
     .command('run')
@@ -27,6 +38,7 @@ export function registerRunCommand(verify: Command): void {
     .option('--timeout <ms>', 'Per-scenario timeout in milliseconds', String(DEFAULT_TIMEOUT_MS))
     .option('--fail-fast', 'Stop after first failed scenario')
     .option('--cleanup <mode>', 'Cleanup mode: always, on-success', 'always')
+    .option('--verbose', 'Print raw API response and manifest snapshot for each non-passing scenario')
     .action(async (opts: {
       pack?: string
       scenario?: string
@@ -37,7 +49,9 @@ export function registerRunCommand(verify: Command): void {
       timeout: string
       failFast?: boolean
       cleanup: string
+      verbose?: boolean
     }) => {
+      // Validate mutually exclusive targeting flags before touching the cluster
       if (!opts.pack && !opts.scenario) {
         console.error('\nError\n  Missing required target: specify exactly one of --pack or --scenario')
         console.error('\nExamples')
@@ -58,6 +72,7 @@ export function registerRunCommand(verify: Command): void {
         process.exit(4)
       }
 
+      // Set up the Kubernetes client once and share it across executor, cleanup, etc.
       const kc = new k8s.KubeConfig()
       kc.loadFromDefault()
       if (opts.context) kc.setCurrentContext(opts.context)
@@ -74,6 +89,7 @@ export function registerRunCommand(verify: Command): void {
         startedAt: new Date().toISOString(),
       })
 
+      // parseInt is safe here because commander validates the flag is present
       const timeoutMs = parseInt(opts.timeout, 10)
 
       if (opts.format !== 'json') {
@@ -85,6 +101,7 @@ export function registerRunCommand(verify: Command): void {
         field('Test Namespace', opts.namespace)
         field('Cleanup', opts.cleanup)
         if (opts.failFast) field('Mode', 'fail-fast')
+        if (opts.verbose) field('Verbose', 'on')
         section(targetScenarios.length === 1 ? 'Running Scenario' : 'Running Scenarios')
       }
 
@@ -95,10 +112,12 @@ export function registerRunCommand(verify: Command): void {
         const execution = await executor.execute(scenario, { namespace: opts.namespace, timeoutMs })
         const validation = validator.validate(scenario, execution)
 
+        // Only populate createdResources when the cluster actually admitted the workload
         const createdResources = execution.createdResourceName
           ? [{ kind: 'Pod' as const, name: execution.createdResourceName, namespace: opts.namespace }]
           : []
 
+        // Respect --cleanup mode: skip deletion when on-success and the scenario failed
         const shouldCleanup = opts.cleanup === 'always' || (opts.cleanup === 'on-success' && validation.status === 'Pass')
         const cleanupResult = shouldCleanup
           ? await cleanup.cleanup(createdResources)
@@ -108,6 +127,7 @@ export function registerRunCommand(verify: Command): void {
           scenarioId: scenario.id,
           version: scenario.version,
           status: validation.status,
+          // Replace underscore with space for human-readable output
           expectedOutcome: scenario.expectedOutcome.type.replace('_', ' '),
           observedOutcome: validation.observedOutcome,
           cleanupStatus: cleanupResult.status,
@@ -122,16 +142,23 @@ export function registerRunCommand(verify: Command): void {
 
         if (opts.format !== 'json') {
           indent(`${outcomeLabel(result.status)} ${scenario.id}`)
+          if (opts.verbose && (result.status === 'Fail' || result.status === 'Error')) {
+            if (result.likelyIssue) indent(`Likely issue:      ${result.likelyIssue}`, 4)
+            if (result.rawResponse) indent(`Raw response:      ${result.rawResponse}`, 4)
+            if (result.manifestSnapshot) indent(`Manifest snapshot: ${result.manifestSnapshot}`, 4)
+          }
         }
 
         if (validation.status === 'Fail' || validation.status === 'Error') {
           exitCode = 1
           if (opts.failFast) {
+            // Calculate how many scenarios were skipped due to early exit
             notRun = targetScenarios.length - targetScenarios.indexOf(scenario) - 1
             break
           }
         }
 
+        // Warn the user immediately when cleanup fails so they can act before the next scenario
         if (cleanupResult.remainingResources.length > 0) {
           blank()
           console.log(chalk.yellow('[WARN] Cleanup incomplete'))
@@ -148,6 +175,7 @@ export function registerRunCommand(verify: Command): void {
 
       const evidence = builder.build(new Date().toISOString())
 
+      // JSON mode: print the full evidence document and exit without further output
       if (opts.format === 'json') {
         console.log(JSON.stringify(evidence, null, 2))
         process.exit(exitCode)
@@ -206,6 +234,7 @@ export function registerRunCommand(verify: Command): void {
     })
 }
 
+/** Populate a fresh registry with the built-in preventive-baseline pack and its scenarios */
 function buildRegistry(): ScenarioRegistry {
   const registry = new ScenarioRegistry()
   registry.registerPack(pack)
@@ -213,6 +242,10 @@ function buildRegistry(): ScenarioRegistry {
   return registry
 }
 
+/**
+ * Translate --pack / --scenario CLI flags into a concrete list of ScenarioDefinitions.
+ * Returns an empty array when the requested pack or scenario ID is not found.
+ */
 function resolveScenarios(registry: ScenarioRegistry, opts: { pack?: string; scenario?: string }): ScenarioDefinition[] {
   if (opts.pack) return registry.getScenariosForPack(opts.pack)
   if (opts.scenario) {

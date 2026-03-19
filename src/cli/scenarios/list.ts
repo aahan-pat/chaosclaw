@@ -1,23 +1,32 @@
+// Implements the "chaosclaw scenarios list" command.
+// Displays all registered packs and scenarios, with an optional --pack filter.
 import type { Command } from 'commander'
 import { ScenarioRegistry } from '../../core/registry.js'
 import { pack, scenarios } from '../../scenarios/preventive-baseline/index.js'
 import { header, section, blank } from '../output.js'
 import chalk from 'chalk'
 
+/**
+ * Attaches the "list" subcommand to the given parent command.
+ * When --pack is provided, only scenarios belonging to that pack are shown.
+ */
 export function registerListCommand(scenariosCmd: Command): void {
   scenariosCmd
     .command('list')
     .description('List available scenario packs and scenarios')
     .option('--pack <id>', 'Filter scenarios by pack')
     .action((opts: { pack?: string }) => {
+      // Registry is populated at command invocation time (no persistent state between calls)
       const registry = new ScenarioRegistry()
       registry.registerPack(pack)
       for (const s of scenarios) registry.register(s)
 
+      // Always show all packs at the top, regardless of the --pack filter
       header('Available Scenario Packs')
       const packs = registry.listPacks()
       for (const p of packs) {
         const count = `${p.scenarioIds.length} scenarios`
+        // Pad columns for a tabular appearance
         console.log(`  ${chalk.bold(p.id.padEnd(24))} ${chalk.dim(count.padEnd(14))} ${p.description}`)
       }
 
