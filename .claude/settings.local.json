@@ -22,7 +22,8 @@
       "Bash(rm:*)",
       "Bash(ls:*)",
       "Bash(~/.nvm/versions/node/v22.22.0/bin/npm install:*)",
-      "Bash(~/.nvm/versions/node/v22.22.0/bin/node dist/index.mjs scenarios show deny-hostpath 2>&1)"
+      "Bash(~/.nvm/versions/node/v22.22.0/bin/node dist/index.mjs scenarios show deny-hostpath 2>&1)",
+      "WebFetch(domain:www.armadin.com)"
     ]
   }
 }

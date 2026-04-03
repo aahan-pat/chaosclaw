@@ -55,7 +55,7 @@ export class CleanupManager {
     try {
       if (target.kind === 'Pod') {
         const coreApi = this.kc.makeApiClient(k8s.CoreV1Api)
-        await coreApi.deleteNamespacedPod(target.name, target.namespace)
+        await coreApi.deleteNamespacedPod({ name: target.name, namespace: target.namespace })
       }
       return true
     } catch {

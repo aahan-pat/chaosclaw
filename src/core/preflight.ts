@@ -63,9 +63,11 @@ export class PreflightEngine {
     try {
       const authApi = this.kc.makeApiClient(k8s.AuthenticationV1Api)
       await authApi.createTokenReview({
-        apiVersion: 'authentication.k8s.io/v1',
-        kind: 'TokenReview',
-        spec: { token: 'probe' },
+        body: {
+          apiVersion: 'authentication.k8s.io/v1',
+          kind: 'TokenReview',
+          spec: { token: 'probe' },
+        },
       })
       return { name: 'Authentication valid', status: 'pass' }
     } catch (err: unknown) {
@@ -80,18 +82,16 @@ export class PreflightEngine {
   private async checkNamespaceCreation(namespace: string): Promise<PreflightCheck> {
     try {
       const authzApi = this.kc.makeApiClient(k8s.AuthorizationV1Api)
-      const { body } = await authzApi.createSelfSubjectAccessReview({
-        apiVersion: 'authorization.k8s.io/v1',
-        kind: 'SelfSubjectAccessReview',
-        spec: {
-          resourceAttributes: {
-            verb: 'create',
-            resource: 'namespaces',
-            namespace,
+      const review = await authzApi.createSelfSubjectAccessReview({
+        body: {
+          apiVersion: 'authorization.k8s.io/v1',
+          kind: 'SelfSubjectAccessReview',
+          spec: {
+            resourceAttributes: { verb: 'create', resource: 'namespaces', namespace },
           },
         },
       })
-      const allowed = body.status?.allowed === true
+      const allowed = review.status?.allowed === true
       return {
         name: 'Namespace creation allowed',
         status: allowed ? 'pass' : 'fail',
@@ -105,18 +105,16 @@ export class PreflightEngine {
   private async checkPodPermissions(namespace: string): Promise<PreflightCheck> {
     try {
       const authzApi = this.kc.makeApiClient(k8s.AuthorizationV1Api)
-      const { body } = await authzApi.createSelfSubjectAccessReview({
-        apiVersion: 'authorization.k8s.io/v1',
-        kind: 'SelfSubjectAccessReview',
-        spec: {
-          resourceAttributes: {
-            verb: 'create',
-            resource: 'pods',
-            namespace,
+      const review = await authzApi.createSelfSubjectAccessReview({
+        body: {
+          apiVersion: 'authorization.k8s.io/v1',
+          kind: 'SelfSubjectAccessReview',
+          spec: {
+            resourceAttributes: { verb: 'create', resource: 'pods', namespace },
           },
         },
       })
-      const allowed = body.status?.allowed === true
+      const allowed = review.status?.allowed === true
       return {
         name: 'Pod create/delete permissions available',
         status: allowed ? 'pass' : 'fail',
@@ -130,18 +128,16 @@ export class PreflightEngine {
   private async checkCleanupPermissions(namespace: string): Promise<PreflightCheck> {
     try {
       const authzApi = this.kc.makeApiClient(k8s.AuthorizationV1Api)
-      const { body } = await authzApi.createSelfSubjectAccessReview({
-        apiVersion: 'authorization.k8s.io/v1',
-        kind: 'SelfSubjectAccessReview',
-        spec: {
-          resourceAttributes: {
-            verb: 'delete',
-            resource: 'pods',
-            namespace,
+      const review = await authzApi.createSelfSubjectAccessReview({
+        body: {
+          apiVersion: 'authorization.k8s.io/v1',
+          kind: 'SelfSubjectAccessReview',
+          spec: {
+            resourceAttributes: { verb: 'delete', resource: 'pods', namespace },
           },
         },
       })
-      const allowed = body.status?.allowed === true
+      const allowed = review.status?.allowed === true
       return {
         name: 'Cleanup permissions available',
         status: allowed ? 'pass' : 'warn',

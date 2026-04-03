@@ -63,11 +63,11 @@ export class ScenarioExecutor {
 
     if (kind === 'Pod') {
       const pod = manifest as k8s.V1Pod
-      const { body } = await coreApi.createNamespacedPod(namespace, pod)
+      const created = await coreApi.createNamespacedPod({ namespace, body: pod })
       return {
         observedOutcome: 'admission_allowed',
-        rawResponse: JSON.stringify({ status: 'created', name: body.metadata?.name }),
-        createdResourceName: body.metadata?.name,
+        rawResponse: JSON.stringify({ status: 'created', name: created.metadata?.name }),
+        createdResourceName: created.metadata?.name,
       }
     }
 
