@@ -96,9 +96,9 @@ export class ScenarioExecutor {
       const created = await coreApi.createNamespacedPod({ namespace, body: pod })
       return {
         observedOutcome: 'admission_allowed',
-        rawResponse: JSON.stringify({ status: 'created', name: body.metadata?.name }),
+        rawResponse: JSON.stringify({ status: 'created', name: created.metadata?.name }),
         // Capture the server-assigned name so CleanupManager can delete it later
-        createdResourceName: body.metadata?.name,
+        createdResourceName: created.metadata?.name,
       }
     }
 

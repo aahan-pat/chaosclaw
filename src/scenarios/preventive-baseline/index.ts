@@ -6,6 +6,7 @@ import { scenario as denyUnapprovedRegistry } from './deny-unapproved-registry.j
 import { scenario as denyHostpath } from './deny-hostpath.js'
 import { scenario as denyForbiddenCapabilities } from './deny-forbidden-capabilities.js'
 import { scenario as denyLatestTag } from './deny-latest-tag.js'
+import { scenario as denyPrivilegeEscalation } from './deny-privilege-escalation.js'
 
 /**
  * The preventive-baseline pack groups the five core guardrail scenarios together
@@ -22,6 +23,7 @@ export const pack: ScenarioPack = {
     'deny-hostpath',
     'deny-forbidden-capabilities',
     'deny-latest-tag',
+    'deny-privilege-escalation',
   ],
 }
 
@@ -31,4 +33,5 @@ export const scenarios = [
   denyHostpath,
   denyForbiddenCapabilities,
   denyLatestTag,
+  denyPrivilegeEscalation,
 ]

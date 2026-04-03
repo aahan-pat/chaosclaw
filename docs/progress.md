@@ -1,6 +1,6 @@
 # ChaosClaw MVP Progress
 
-**Last updated:** 2026-03-15
+**Last updated:** 2026-04-03
 
 ---
 
@@ -43,12 +43,14 @@
 - [x] `deny-hostpath`
 - [x] `deny-forbidden-capabilities`
 - [x] `deny-latest-tag`
+- [x] `deny-privilege-escalation`
 
 ### CLI commands
 
 - [x] `chaosclaw verify preflight`
 - [x] `chaosclaw verify run --pack <id>`
 - [x] `chaosclaw verify run --scenario <id>`
+- [x] `chaosclaw verify run --manifest <path> --expect <rejected|allowed>`
 - [x] `chaosclaw scenarios list`
 - [x] `chaosclaw scenarios show <id>`
 
@@ -70,8 +72,8 @@
 
 ### Namespace management
 
-- [ ] Auto-create test namespace if it does not exist
-- [ ] Skip namespace creation if namespace already exists
+- [x] Auto-create test namespace if it does not exist
+- [x] Skip namespace creation if namespace already exists (409 ignored)
 - [ ] Namespace cleanup after run (optional, off by default)
 
 ### Exit criteria

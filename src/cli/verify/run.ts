@@ -339,9 +339,9 @@ async function loadManifestScenario(manifestPath: string, expect: string): Promi
 async function ensureNamespace(kc: k8s.KubeConfig, namespace: string): Promise<void> {
   const coreApi = kc.makeApiClient(k8s.CoreV1Api)
   try {
-    await coreApi.createNamespace({ apiVersion: 'v1', kind: 'Namespace', metadata: { name: namespace } })
+    await coreApi.createNamespace({ body: { apiVersion: 'v1', kind: 'Namespace', metadata: { name: namespace } } })
   } catch (err: unknown) {
-    const status = (err as { statusCode?: number }).statusCode
-    if (status !== 409) throw err
+    const code = (err as { code?: number; statusCode?: number }).code ?? (err as { statusCode?: number }).statusCode
+    if (code !== 409) throw err
   }
 }

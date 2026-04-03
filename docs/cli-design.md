@@ -234,7 +234,7 @@ Help users discover built-in scenarios and packs.
 $ chaosclaw scenarios list
 
 Available Scenario Packs
-  preventive-baseline   5 scenarios   Core preventive guardrail checks
+  preventive-baseline   6 scenarios   Core preventive guardrail checks
 
 Available Scenarios
   deny-privileged-container      Prevent privileged workloads
@@ -242,6 +242,7 @@ Available Scenarios
   deny-hostpath                  Prevent hostPath volume usage
   deny-forbidden-capabilities    Restrict dangerous Linux capabilities
   deny-latest-tag                Prevent mutable image tags
+  deny-privilege-escalation      Prevent container privilege escalation
 ```
 
 ### Notes
@@ -587,11 +588,12 @@ Keep CLI mistakes easy to recover from.
 $ chaosclaw verify run
 
 Error
-  Missing required target: specify exactly one of --pack or --scenario
+  Missing required target: specify exactly one of --pack, --scenario, or --manifest
 
 Examples
   chaosclaw verify run --pack preventive-baseline
   chaosclaw verify run --scenario deny-hostpath
+  chaosclaw verify run --manifest ./my-pod.yaml --expect rejected
 
 Help
   chaosclaw verify run --help
@@ -752,21 +754,27 @@ Show concise command help.
 $ chaosclaw verify run --help
 
 Usage
-  chaosclaw verify run (--pack <id> | --scenario <id>) [flags]
+  chaosclaw verify run (--pack <id> | --scenario <id> | --manifest <path> --expect <outcome>) [flags]
 
 Flags
+  --pack <id>            scenario pack to run
+  --scenario <id>        single scenario to run
+  --manifest <path>      path to a Pod manifest file (YAML or JSON) to test directly
+  --expect <outcome>     expected admission outcome when using --manifest: rejected or allowed
   --context <name>       Kubernetes context to use
   --kubeconfig <path>    kubeconfig path override
   --namespace <name>     test namespace override
   --output <path>        write JSON report to file
   --format <mode>        output mode: table, json
-  --timeout <duration>   per-run timeout
+  --timeout <ms>         per-scenario timeout in milliseconds
   --fail-fast            stop after first failure
+  --cleanup <mode>       cleanup mode: always, on-success
   --verbose              include extra diagnostics
 
 Examples
   chaosclaw verify run --pack preventive-baseline
   chaosclaw verify run --scenario deny-hostpath --context prod-us-east
+  chaosclaw verify run --manifest ./my-pod.yaml --expect rejected
 ```
 
 ### Notes
