@@ -89,6 +89,9 @@ Scenario definitions should be versioned and data-driven so the engine can grow 
 ### 3.5 OpenClaw extends workflows; it does not redefine results
 OpenClaw may invoke ChaosClaw, summarize outcomes, and recommend next steps, but it should not own pass/fail semantics.
 
+### 3.7 Deterministic pre-baked queries, not LLM-generated ones
+ChaosClaw never generates queries, manifests, or test logic dynamically. Every scenario is pre-defined, audited, and versioned. The LLM's role in OpenClaw is to *choose* which scenarios to run and *interpret* the results — not to construct them. Dynamic query generation is a primary failure mode in LLM-automated security workflows; eliminating it is a design requirement, not just a preference.
+
 ### 3.6 Evidence must remain stable as the system scales
 The JSON evidence schema created by the single-cluster CLI should remain the same foundation for later multi-cluster aggregation.
 
@@ -890,15 +893,18 @@ Exit criteria:
 
 Deliver:
 
-* inventory-driven fleet skill
-* fan-out execution
-* fleet aggregation
-* failed-cluster targeting
-* rerun workflows
+* **ChaosClaw MCP server** — exposes `chaosclaw_preflight`, `chaosclaw_run_scenario`, `chaosclaw_run_pack`, `chaosclaw_list_scenarios`, `chaosclaw_get_evidence` as structured MCP tool calls
+* Bounded evidence responses with compact `summary` top-level field; full detail paged via `chaosclaw_get_evidence`
+* Inventory-driven fleet skill
+* Fan-out execution
+* Fleet aggregation
+* Failed-cluster targeting
+* Rerun workflows
 
 Exit criteria:
 
-* multiple clusters can be verified using the same single-cluster core
+* Multiple clusters can be verified using the same single-cluster core
+* OpenClaw can invoke ChaosClaw via MCP without subprocess orchestration
 
 ## Phase 4 — Closed-loop workflows
 
@@ -985,9 +991,4 @@ ChaosClaw is bundled to a single distributable using `tsdown`, aligned with Open
 | `tsx` | Development runner |
 | `vitest` | Test framework |
 | `oxlint` | Linter |
-
-```
-
-This markdown is grounded in the current PRD’s MVP emphasis on **single-cluster execution, pass/fail reporting, and Kubernetes guardrail validation**, along with the proposal’s roadmap toward **multi-cluster orchestration**, **community/open scenario packs**, and later workflow automation. :contentReference[oaicite:0]{index=0} :contentReference[oaicite:1]{index=1} :contentReference[oaicite:2]{index=2}
-```
 

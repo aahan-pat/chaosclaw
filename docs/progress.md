@@ -105,6 +105,18 @@
 
 > **Goal:** Multiple clusters can be verified using the same single-cluster core.
 
+### ChaosClaw MCP Server
+
+- [ ] `chaosclaw_preflight` — run connectivity/permission checks, return structured result
+- [ ] `chaosclaw_run_scenario` — run a single scenario by ID, return evidence
+- [ ] `chaosclaw_run_pack` — run a full pack, return summary + per-scenario outcomes
+- [ ] `chaosclaw_list_scenarios` — return the scenario catalog (for the LLM to reason about)
+- [ ] `chaosclaw_get_evidence` — fetch a specific artifact by run ID
+- [ ] Evidence responses include compact `summary` field; full detail via `get_evidence` (bounded context)
+- [ ] MCP server exposes ChaosClaw as a structured tool, not a subprocess
+
+### Fleet orchestration
+
 - [ ] Flat file cluster inventory format (`clusters.yaml`)
 - [ ] OpenClaw skill: `verify_cluster_baseline`
 - [ ] OpenClaw skill: `verify_prod_fleet` (fan-out across inventory)
