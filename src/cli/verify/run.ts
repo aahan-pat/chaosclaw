@@ -1,6 +1,8 @@
 // Implements the "chaosclaw verify run" command.
 // Orchestrates the full scenario execution pipeline: resolve scenarios → execute →
 // validate → cleanup → record evidence → print results.
+import { readFile } from 'node:fs/promises'
+import { basename } from 'node:path'
 import * as k8s from '@kubernetes/client-node'
 import type { Command } from 'commander'
 import { ScenarioRegistry } from '../../core/registry.js'
@@ -31,6 +33,8 @@ export function registerRunCommand(verify: Command): void {
     .description('Run verification scenarios against the target cluster')
     .option('--pack <id>', 'Scenario pack to run')
     .option('--scenario <id>', 'Single scenario to run')
+    .option('--manifest <path>', 'Path to a Pod manifest file (YAML or JSON) to test against the cluster')
+    .option('--expect <outcome>', 'Expected admission outcome when using --manifest: rejected or allowed')
     .option('--context <name>', 'Kubernetes context to use')
     .option('--namespace <name>', 'Test namespace', DEFAULT_NAMESPACE)
     .option('--output <path>', 'Write JSON evidence artifact to file')
@@ -42,6 +46,8 @@ export function registerRunCommand(verify: Command): void {
     .action(async (opts: {
       pack?: string
       scenario?: string
+      manifest?: string
+      expect?: string
       context?: string
       namespace: string
       output?: string
@@ -52,24 +58,38 @@ export function registerRunCommand(verify: Command): void {
       verbose?: boolean
     }) => {
       // Validate mutually exclusive targeting flags before touching the cluster
-      if (!opts.pack && !opts.scenario) {
-        console.error('\nError\n  Missing required target: specify exactly one of --pack or --scenario')
+      const targetCount = [opts.pack, opts.scenario, opts.manifest].filter(Boolean).length
+      if (targetCount === 0) {
+        console.error('\nError\n  Missing required target: specify exactly one of --pack, --scenario, or --manifest')
         console.error('\nExamples')
         console.error('  chaosclaw verify run --pack preventive-baseline')
         console.error('  chaosclaw verify run --scenario deny-hostpath')
+        console.error('  chaosclaw verify run --manifest ./my-pod.yaml --expect rejected')
         process.exit(4)
       }
-      if (opts.pack && opts.scenario) {
-        console.error('\nError\n  Specify exactly one of --pack or --scenario, not both')
+      if (targetCount > 1) {
+        console.error('\nError\n  Specify exactly one of --pack, --scenario, or --manifest')
+        process.exit(4)
+      }
+      if (opts.manifest && !opts.expect) {
+        console.error('\nError\n  --expect is required when using --manifest (values: rejected, allowed)')
+        process.exit(4)
+      }
+      if (opts.manifest && opts.expect !== 'rejected' && opts.expect !== 'allowed') {
+        console.error(`\nError\n  --expect must be "rejected" or "allowed", got "${opts.expect}"`)
         process.exit(4)
       }
 
-      const registry = buildRegistry()
-      const targetScenarios = resolveScenarios(registry, opts)
-
-      if (targetScenarios.length === 0) {
-        console.error(`\nError\n  No scenarios found for ${opts.pack ? `pack "${opts.pack}"` : `scenario "${opts.scenario}"`}`)
-        process.exit(4)
+      let targetScenarios: ScenarioDefinition[]
+      if (opts.manifest) {
+        targetScenarios = [await loadManifestScenario(opts.manifest, opts.expect!)]
+      } else {
+        const registry = buildRegistry()
+        targetScenarios = resolveScenarios(registry, opts)
+        if (targetScenarios.length === 0) {
+          console.error(`\nError\n  No scenarios found for ${opts.pack ? `pack "${opts.pack}"` : `scenario "${opts.scenario}"`}`)
+          process.exit(4)
+        }
       }
 
       // Set up the Kubernetes client once and share it across executor, cleanup, etc.
@@ -77,6 +97,9 @@ export function registerRunCommand(verify: Command): void {
       kc.loadFromDefault()
       if (opts.context) kc.setCurrentContext(opts.context)
       const clusterContext = opts.context ?? kc.getCurrentContext()
+
+      // Ensure the test namespace exists before running any scenarios
+      await ensureNamespace(kc, opts.namespace)
 
       const executor = new ScenarioExecutor(kc)
       const validator = new ValidationEngine()
@@ -97,6 +120,10 @@ export function registerRunCommand(verify: Command): void {
         field('Cluster Context', clusterContext)
         if (opts.pack) field('Scenario Pack', opts.pack)
         if (opts.scenario) field('Scenario', opts.scenario)
+        if (opts.manifest) {
+          field('Manifest', opts.manifest)
+          field('Expect', opts.expect!)
+        }
         field('Scenarios', String(targetScenarios.length))
         field('Test Namespace', opts.namespace)
         field('Cleanup', opts.cleanup)
@@ -253,4 +280,68 @@ function resolveScenarios(registry: ScenarioRegistry, opts: { pack?: string; sce
     return s ? [s] : []
   }
   return []
+}
+
+/**
+ * Reads a user-supplied Pod manifest file (YAML or JSON), validates it, and wraps it
+ * in a synthetic ScenarioDefinition so it can flow through the standard execution pipeline.
+ * Exits with code 4 on any file, parse, or validation error.
+ */
+async function loadManifestScenario(manifestPath: string, expect: string): Promise<ScenarioDefinition> {
+  let content: string
+  try {
+    content = await readFile(manifestPath, 'utf-8')
+  } catch {
+    console.error(`\nError\n  Could not read manifest file: ${manifestPath}`)
+    process.exit(4)
+  }
+
+  let parsed: unknown
+  try {
+    parsed = k8s.loadYaml(content)
+  } catch {
+    console.error(`\nError\n  Could not parse manifest file (expected valid YAML or JSON): ${manifestPath}`)
+    process.exit(4)
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    console.error(`\nError\n  Manifest file is empty or not a valid object: ${manifestPath}`)
+    process.exit(4)
+  }
+
+  const manifest = parsed as Record<string, unknown>
+
+  if (manifest['kind'] !== 'Pod') {
+    console.error(`\nError\n  Only Pod manifests are supported. Found kind: ${manifest['kind'] ?? 'unknown'}`)
+    console.error('  Tip: extract the pod template from a Deployment/DaemonSet into a standalone Pod manifest')
+    process.exit(4)
+  }
+
+  return {
+    id: `custom:${basename(manifestPath)}`,
+    version: 1,
+    name: basename(manifestPath),
+    description: 'User-submitted manifest',
+    category: 'preventive',
+    controlObjective: 'User-defined',
+    prerequisites: [],
+    manifest,
+    expectedOutcome: { type: expect === 'rejected' ? 'admission_rejected' : 'admission_allowed' },
+    cleanup: { deleteCreatedResources: true },
+    safety: { level: 'low', namespaceScoped: true },
+  }
+}
+
+/**
+ * Creates the test namespace if it does not already exist.
+ * Idempotent: a 409 Conflict response (namespace already exists) is silently ignored.
+ */
+async function ensureNamespace(kc: k8s.KubeConfig, namespace: string): Promise<void> {
+  const coreApi = kc.makeApiClient(k8s.CoreV1Api)
+  try {
+    await coreApi.createNamespace({ apiVersion: 'v1', kind: 'Namespace', metadata: { name: namespace } })
+  } catch (err: unknown) {
+    const status = (err as { statusCode?: number }).statusCode
+    if (status !== 409) throw err
+  }
 }
