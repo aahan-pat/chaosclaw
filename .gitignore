@@ -5,3 +5,10 @@ dist/
 coverage/
 .artifacts/
 *.tsbuildinfo
+
+
+# Intellij Additions
+.idea/
+
+# Agents
+.claude/

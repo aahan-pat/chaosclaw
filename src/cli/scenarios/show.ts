@@ -1,8 +1,15 @@
+// Implements the "chaosclaw scenarios show <id>" command.
+// Prints a detailed view of a single scenario — useful for understanding what
+// a scenario does before running it, or for troubleshooting a failed result.
 import type { Command } from 'commander'
 import { ScenarioRegistry } from '../../core/registry.js'
 import { pack, scenarios } from '../../scenarios/preventive-baseline/index.js'
 import { header, field, section, indent, blank } from '../output.js'
 
+/**
+ * Attaches the "show <id>" subcommand to the given parent command.
+ * Exits with code 4 if the requested scenario ID is not found in the registry.
+ */
 export function registerShowCommand(scenariosCmd: Command): void {
   scenariosCmd
     .command('show <id>')
@@ -23,6 +30,7 @@ export function registerShowCommand(scenariosCmd: Command): void {
       field('Version', String(scenario.version))
       field('Category', scenario.category)
       field('Control Objective', scenario.controlObjective)
+      // Display as human-readable "admission rejected" rather than the raw enum value
       field('Expected Outcome', scenario.expectedOutcome.type.replace('_', ' '))
       field('Risk Level', scenario.safety.level)
 
@@ -36,6 +44,7 @@ export function registerShowCommand(scenariosCmd: Command): void {
         }
       }
 
+      // Show which packs include this scenario so users know how to run it as part of a suite
       if (scenario.packMembership && scenario.packMembership.length > 0) {
         section('Pack Membership')
         for (const p of scenario.packMembership) {
