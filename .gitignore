@@ -11,4 +11,5 @@ coverage/
 .idea/
 
 # Agents
+.claude
 .claude/
