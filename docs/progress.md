@@ -1,6 +1,6 @@
 # ChaosClaw MVP Progress
 
-**Last updated:** 2026-04-03
+**Last updated:** 2026-04-05
 
 ---
 
@@ -53,6 +53,16 @@
 - [x] `chaosclaw verify run --manifest <path> --expect <rejected|allowed>`
 - [x] `chaosclaw scenarios list`
 - [x] `chaosclaw scenarios show <id>`
+
+### Runtime detection
+
+- [x] `src/core/runtime-executor.ts` — skeleton: `RuntimeScenarioExecutor`, `RuntimeAlertSource` interface, `RuntimeAlert`, `RuntimeObservedOutcome`, `RuntimeExecutionResult`
+- [ ] `RuntimeAlertSource` adapter: Falco (HTTP/gRPC)
+- [ ] `RuntimeAlertSource` adapter: Tetragon (gRPC)
+- [ ] `RuntimeAlertSource` adapter: KubeArmor (gRPC)
+- [ ] `src/core/runtime-validator.ts` — validates alert-based outcomes (alert_fired, action_blocked, no_alert)
+- [ ] Runtime preflight checks (detect which runtime tools are present on the cluster)
+- [ ] Runtime scenarios registered in `src/scenarios/runtime-baseline/`
 
 ### Tests
 
