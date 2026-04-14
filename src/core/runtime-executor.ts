@@ -106,10 +106,10 @@ export interface RuntimeExecutorOptions {
 }
 
 /** How long to observe for an alert before giving up */
-const DEFAULT_OBSERVATION_WINDOW_MS = 10_000
+const _DEFAULT_OBSERVATION_WINDOW_MS = 10_000
 
 /** Hard ceiling for the full scenario execution including observation */
-const DEFAULT_TIMEOUT_MS = 30_000
+const _DEFAULT_TIMEOUT_MS = 30_000
 
 // ---------------------------------------------------------------------------
 // Executor
@@ -143,8 +143,8 @@ export class RuntimeScenarioExecutor {
    * resources remain isolated and attributable to this ChaosClaw run.
    */
   async execute(
-    scenario: ScenarioDefinition,
-    options: RuntimeExecutorOptions,
+    _scenario: ScenarioDefinition,
+    _options: RuntimeExecutorOptions,
   ): Promise<RuntimeExecutionResult> {
     throw new Error('Not implemented')
   }

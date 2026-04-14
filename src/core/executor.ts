@@ -38,6 +38,7 @@ export class ScenarioExecutor {
   constructor(kc: k8s.KubeConfig) {
     this.kc = kc
   }
+  
 
   /**
    * Execute a scenario against the cluster.

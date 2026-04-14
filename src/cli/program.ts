@@ -20,6 +20,13 @@ export function buildProgram(): Command {
     .description('Deterministic CLI for Kubernetes Continuous Control Verification')
     .version('0.1.0')
 
+  program
+    .command('version')
+    .description('Print the chaosclaw version')
+    .action(() => {
+      console.log(`chaosclaw v${program.version()}`)
+    })
+
   // chaosclaw verify preflight | run
   const verify = program
     .command('verify')

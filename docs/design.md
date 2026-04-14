@@ -183,6 +183,8 @@ chaosclaw verify run --pack preventive-baseline
 chaosclaw verify run --scenario deny-privileged-container
 chaosclaw verify run --pack preventive-baseline --context prod-us-east
 chaosclaw verify run --pack preventive-baseline --output result.json
+chaosclaw verify run --manifest ./my-pod.yaml --expect rejected
+chaosclaw verify run --manifest ./my-pod.yaml --expect allowed
 ```
 
 ### Scenario discovery
@@ -221,13 +223,15 @@ These can be deferred if needed.
 
 * `--pack <id>` — scenario pack to run
 * `--scenario <id>` — single scenario to run
+* `--manifest <path>` — path to a user-supplied Pod manifest (YAML or JSON) to test directly
+* `--expect <rejected|allowed>` — expected admission outcome when using `--manifest`
 * `--timeout <duration>` — per-run timeout
 * `--fail-fast` — stop after first failed scenario
 * `--cleanup <always|on-success>` — cleanup mode, default `always`
 
 ### Recommendation
 
-Support both `--pack` and `--scenario`, but require exactly one in MVP.
+Require exactly one of `--pack`, `--scenario`, or `--manifest` per run.
 
 ---
 
