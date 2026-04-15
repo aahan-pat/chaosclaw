@@ -106,10 +106,10 @@ export interface RuntimeExecutorOptions {
 }
 
 /** How long to observe for an alert before giving up */
-const _DEFAULT_OBSERVATION_WINDOW_MS = 10_000
+const DEFAULT_OBSERVATION_WINDOW_MS = 10_000
 
 /** Hard ceiling for the full scenario execution including observation */
-const _DEFAULT_TIMEOUT_MS = 30_000
+const DEFAULT_TIMEOUT_MS = 30_000
 
 // ---------------------------------------------------------------------------
 // Executor
@@ -141,12 +141,76 @@ export class RuntimeScenarioExecutor {
    * Execute a runtime detection scenario.
    * Injects the test namespace into the manifest before submission so all
    * resources remain isolated and attributable to this ChaosClaw run.
+   *
+   * The hard timeout (timeoutMs) caps the entire execution. The observation
+   * window (observationWindowMs) is capped to the remaining budget after submit
+   * so it never exceeds the hard ceiling.
    */
   async execute(
-    _scenario: ScenarioDefinition,
-    _options: RuntimeExecutorOptions,
+    scenario: ScenarioDefinition,
+    options: RuntimeExecutorOptions,
   ): Promise<RuntimeExecutionResult> {
-    throw new Error('Not implemented')
+    const startedAt = new Date().toISOString()
+    const observationWindowMs = options.observationWindowMs ?? DEFAULT_OBSERVATION_WINDOW_MS
+    const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+    const manifest = this.injectNamespace(scenario.manifest, options.namespace)
+    const manifestSnapshot = JSON.stringify(manifest)
+
+    // --- Submit phase ---
+    let submitResult: { createdResourceName: string; rawResponse: string }
+    try {
+      submitResult = await Promise.race([
+        this.submitManifest(manifest, options.namespace),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('timeout')), timeoutMs),
+        ),
+      ])
+    } catch (err: unknown) {
+      const endedAt = new Date().toISOString()
+      const isTimeout = err instanceof Error && err.message === 'timeout'
+      return {
+        observedOutcome: isTimeout ? 'timeout' : 'api_error',
+        rawResponse: this.formatError(err),
+        manifestSnapshot,
+        startedAt,
+        endedAt,
+      }
+    }
+
+    // --- Observe phase ---
+    // Cap the window to whatever budget remains under the hard timeout.
+    const elapsedMs = Date.now() - new Date(startedAt).getTime()
+    const effectiveWindowMs = Math.min(observationWindowMs, Math.max(0, timeoutMs - elapsedMs))
+    const windowStart = new Date().toISOString()
+
+    let alert: RuntimeAlert | null
+    try {
+      alert = await this.observeAlert(
+        options.namespace,
+        'chaosclaw-test-',
+        windowStart,
+        effectiveWindowMs,
+      )
+    } catch (err: unknown) {
+      return {
+        observedOutcome: 'api_error',
+        rawResponse: this.formatError(err),
+        manifestSnapshot,
+        startedAt,
+        endedAt: new Date().toISOString(),
+        createdResourceName: submitResult.createdResourceName,
+      }
+    }
+
+    return {
+      observedOutcome: this.resolveOutcome(alert, scenario.expectedOutcome.type),
+      alertDetail: alert ?? undefined,
+      rawResponse: submitResult.rawResponse,
+      manifestSnapshot,
+      startedAt,
+      endedAt: new Date().toISOString(),
+      createdResourceName: submitResult.createdResourceName,
+    }
   }
 
   /**
@@ -156,10 +220,24 @@ export class RuntimeScenarioExecutor {
    * expect the workload to be admitted.
    */
   private async submitManifest(
-    _manifest: Record<string, unknown>,
-    _namespace: string,
+    manifest: Record<string, unknown>,
+    namespace: string,
   ): Promise<{ createdResourceName: string; rawResponse: string }> {
-    throw new Error('Not implemented')
+    const coreApi = this.kc.makeApiClient(k8s.CoreV1Api)
+    const kind = manifest['kind'] as string | undefined
+
+    if (kind === 'Pod') {
+      const pod = manifest as k8s.V1Pod
+      const created = await coreApi.createNamespacedPod({ namespace, body: pod })
+      const name = created.metadata?.name
+      if (!name) throw new Error('Pod was created but the server assigned no name')
+      return {
+        createdResourceName: name,
+        rawResponse: JSON.stringify({ status: 'created', name }),
+      }
+    }
+
+    throw new Error(`Unsupported manifest kind: ${kind ?? 'unknown'}`)
   }
 
   /**
@@ -168,24 +246,27 @@ export class RuntimeScenarioExecutor {
    * closes without a match.
    */
   private async observeAlert(
-    _namespace: string,
-    _podNamePrefix: string,
-    _windowStart: string,
-    _windowMs: number,
+    namespace: string,
+    podNamePrefix: string,
+    windowStart: string,
+    windowMs: number,
   ): Promise<RuntimeAlert | null> {
-    throw new Error('Not implemented')
+    return this.alertSource.pollForAlert(namespace, podNamePrefix, windowStart, windowMs)
   }
 
   /**
    * Translate a RuntimeAlert presence/absence into a RuntimeObservedOutcome.
-   * The scenario's expected outcome determines what counts as a pass — either
-   * an alert firing or the action being blocked at the syscall level.
+   * alert_fired / action_blocked cannot be distinguished from the normalised
+   * RuntimeAlert payload alone — the alert source adapter is responsible for
+   * emitting a blocked-action signal if the tool supports it. For now, any
+   * non-null alert maps to alert_fired and null maps to no_alert.
    */
   private resolveOutcome(
-    _alert: RuntimeAlert | null,
+    alert: RuntimeAlert | null,
     _expectedOutcomeType: string,
   ): RuntimeObservedOutcome {
-    throw new Error('Not implemented')
+    if (alert === null) return 'no_alert'
+    return 'alert_fired'
   }
 
   /**
@@ -193,14 +274,19 @@ export class RuntimeScenarioExecutor {
    * test pods get unique names that can be used for alert correlation.
    */
   private injectNamespace(
-    _manifest: Record<string, unknown>,
-    _namespace: string,
+    manifest: Record<string, unknown>,
+    namespace: string,
   ): Record<string, unknown> {
-    throw new Error('Not implemented')
+    const meta = (manifest['metadata'] as Record<string, unknown> | undefined) ?? {}
+    return {
+      ...manifest,
+      metadata: { ...meta, namespace, generateName: 'chaosclaw-test-', name: undefined },
+    }
   }
 
   /** Safely converts an unknown thrown value to a plain string for evidence logging */
-  private formatError(_err: unknown): string {
-    throw new Error('Not implemented')
+  private formatError(err: unknown): string {
+    if (err instanceof Error) return err.message
+    return String(err)
   }
 }
