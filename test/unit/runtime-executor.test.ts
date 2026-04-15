@@ -1,14 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import * as k8s from '@kubernetes/client-node'
 import { RuntimeScenarioExecutor } from '../../src/core/runtime-executor.js'
 import type { RuntimeAlertSource, RuntimeAlert } from '../../src/core/runtime-executor.js'
-import type { ScenarioDefinition } from '../../src/types/scenario.js'
+import type { RuntimeScenarioDefinition } from '../../src/types/runtime-scenario.js'
 
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const SCENARIO: ScenarioDefinition = {
+const SCENARIO: RuntimeScenarioDefinition = {
   id: 'test-runtime',
   version: 1,
   name: 'Test runtime scenario',
@@ -22,9 +22,36 @@ const SCENARIO: ScenarioDefinition = {
     metadata: { name: 'original-name', namespace: 'wrong-ns' },
     spec: { containers: [{ name: 'test', image: 'busybox:1.36' }] },
   },
-  expectedOutcome: { type: 'admission_allowed' },
+  execStep: { container: 'test', command: ['cat', '/etc/shadow'] },
+  expectedOutcome: { type: 'alert_fired' },
   cleanup: { deleteCreatedResources: true },
   safety: { level: 'low', namespaceScoped: true },
+}
+
+// ---------------------------------------------------------------------------
+// Testable subclass — overrides createExec so tests never need a real websocket
+// ---------------------------------------------------------------------------
+
+class TestableRuntimeExecutor extends RuntimeScenarioExecutor {
+  protected override createExec(): k8s.Exec {
+    return {
+      exec: (
+        _ns: string,
+        _pod: string,
+        _container: string,
+        _command: string[],
+        _stdout: unknown,
+        _stderr: unknown,
+        _stdin: unknown,
+        _tty: boolean,
+        statusCallback: (status: k8s.V1Status) => void,
+      ) => {
+        // Fire the status callback on the next tick so the promise resolves
+        Promise.resolve().then(() => statusCallback({} as k8s.V1Status))
+        return Promise.resolve(null as unknown as WebSocket)
+      },
+    } as unknown as k8s.Exec
+  }
 }
 
 const ALERT: RuntimeAlert = {
@@ -40,13 +67,18 @@ const ALERT: RuntimeAlert = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Build a mock KubeConfig whose CoreV1Api.createNamespacedPod is controllable */
+/** Build a mock KubeConfig whose CoreV1Api methods are controllable */
 function makeKc(
   createPod: () => Promise<k8s.V1Pod>,
+  readPod: () => Promise<k8s.V1Pod> = () =>
+    Promise.resolve({
+      status: { phase: 'Running', containerStatuses: [{ ready: true, name: 'test' }] },
+    }),
 ): { kc: k8s.KubeConfig; createNamespacedPod: ReturnType<typeof vi.fn> } {
   const createNamespacedPod = vi.fn(createPod)
+  const readNamespacedPod = vi.fn(readPod)
   const kc = {
-    makeApiClient: vi.fn().mockReturnValue({ createNamespacedPod }),
+    makeApiClient: vi.fn().mockReturnValue({ createNamespacedPod, readNamespacedPod }),
   } as unknown as k8s.KubeConfig
   return { kc, createNamespacedPod }
 }
@@ -75,7 +107,7 @@ describe('RuntimeScenarioExecutor', () => {
         Promise.resolve({ metadata: { name: 'chaosclaw-test-abc1' } }),
       )
       const alertSource = makeAlertSource(() => Promise.resolve(ALERT))
-      const executor = new RuntimeScenarioExecutor(kc, alertSource)
+      const executor = new TestableRuntimeExecutor(kc, alertSource)
 
       const result = await executor.execute(SCENARIO, BASE_OPTIONS)
 
@@ -89,7 +121,7 @@ describe('RuntimeScenarioExecutor', () => {
         Promise.resolve({ metadata: { name: 'chaosclaw-test-abc2' } }),
       )
       const alertSource = makeAlertSource(() => Promise.resolve(null))
-      const executor = new RuntimeScenarioExecutor(kc, alertSource)
+      const executor = new TestableRuntimeExecutor(kc, alertSource)
 
       const result = await executor.execute(SCENARIO, BASE_OPTIONS)
 
@@ -101,7 +133,7 @@ describe('RuntimeScenarioExecutor', () => {
     it('returns api_error when the Kubernetes API rejects the pod', async () => {
       const apiError = Object.assign(new Error('forbidden'), { response: { statusCode: 403 } })
       const { kc } = makeKc(() => Promise.reject(apiError))
-      const executor = new RuntimeScenarioExecutor(kc, makeAlertSource())
+      const executor = new TestableRuntimeExecutor(kc, makeAlertSource())
 
       const result = await executor.execute(SCENARIO, BASE_OPTIONS)
 
@@ -112,7 +144,7 @@ describe('RuntimeScenarioExecutor', () => {
 
     it('returns api_error when the server creates the pod without assigning a name', async () => {
       const { kc } = makeKc(() => Promise.resolve({ metadata: {} }))
-      const executor = new RuntimeScenarioExecutor(kc, makeAlertSource())
+      const executor = new TestableRuntimeExecutor(kc, makeAlertSource())
 
       const result = await executor.execute(SCENARIO, BASE_OPTIONS)
 
@@ -123,7 +155,7 @@ describe('RuntimeScenarioExecutor', () => {
     it('returns timeout when the submit step exceeds timeoutMs', async () => {
       // Promise that never resolves — relies on the executor's internal timeout
       const { kc } = makeKc(() => new Promise(() => {}))
-      const executor = new RuntimeScenarioExecutor(kc, makeAlertSource())
+      const executor = new TestableRuntimeExecutor(kc, makeAlertSource())
 
       const result = await executor.execute(SCENARIO, { ...BASE_OPTIONS, timeoutMs: 80 })
 
@@ -136,7 +168,7 @@ describe('RuntimeScenarioExecutor', () => {
         Promise.resolve({ metadata: { name: 'chaosclaw-test-abc3' } }),
       )
       const alertSource = makeAlertSource(() => Promise.reject(new Error('falco unavailable')))
-      const executor = new RuntimeScenarioExecutor(kc, alertSource)
+      const executor = new TestableRuntimeExecutor(kc, alertSource)
 
       const result = await executor.execute(SCENARIO, BASE_OPTIONS)
 
@@ -150,7 +182,7 @@ describe('RuntimeScenarioExecutor', () => {
       const { kc, createNamespacedPod } = makeKc(() =>
         Promise.resolve({ metadata: { name: 'chaosclaw-test-abc4' } }),
       )
-      const executor = new RuntimeScenarioExecutor(kc, makeAlertSource())
+      const executor = new TestableRuntimeExecutor(kc, makeAlertSource())
 
       await executor.execute(SCENARIO, BASE_OPTIONS)
 
@@ -166,7 +198,7 @@ describe('RuntimeScenarioExecutor', () => {
         Promise.resolve({ metadata: { name: 'chaosclaw-test-abc5' } }),
       )
       const alertSource = makeAlertSource(() => Promise.resolve(ALERT))
-      const executor = new RuntimeScenarioExecutor(kc, alertSource)
+      const executor = new TestableRuntimeExecutor(kc, alertSource)
 
       await executor.execute(SCENARIO, BASE_OPTIONS)
 
@@ -179,7 +211,7 @@ describe('RuntimeScenarioExecutor', () => {
         Promise.resolve({ metadata: { name: 'chaosclaw-test-abc6' } }),
       )
       const alertSource = makeAlertSource(() => Promise.resolve(null))
-      const executor = new RuntimeScenarioExecutor(kc, alertSource)
+      const executor = new TestableRuntimeExecutor(kc, alertSource)
 
       await executor.execute(SCENARIO, { ...BASE_OPTIONS, namespace: 'my-custom-ns' })
 
@@ -191,7 +223,7 @@ describe('RuntimeScenarioExecutor', () => {
       const { kc } = makeKc(() =>
         Promise.resolve({ metadata: { name: 'chaosclaw-test-abc7' } }),
       )
-      const executor = new RuntimeScenarioExecutor(kc, makeAlertSource())
+      const executor = new TestableRuntimeExecutor(kc, makeAlertSource())
 
       const result = await executor.execute(SCENARIO, BASE_OPTIONS)
 
@@ -206,7 +238,7 @@ describe('RuntimeScenarioExecutor', () => {
       const { kc } = makeKc(() =>
         Promise.resolve({ metadata: { name: 'chaosclaw-test-abc8' } }),
       )
-      const executor = new RuntimeScenarioExecutor(kc, makeAlertSource())
+      const executor = new TestableRuntimeExecutor(kc, makeAlertSource())
 
       const result = await executor.execute(SCENARIO, BASE_OPTIONS)
 
