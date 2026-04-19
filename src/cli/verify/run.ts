@@ -8,16 +8,28 @@ import type { Command } from 'commander'
 import { ScenarioRegistry } from '../../core/registry.js'
 import { ScenarioExecutor } from '../../core/executor.js'
 import { ValidationEngine } from '../../core/validator.js'
+import { RuntimeScenarioExecutor } from '../../core/runtime-executor.js'
+import { RuntimeValidationEngine } from '../../core/runtime-validator.js'
+import { NullAlertSource } from '../../core/alert-sources/null.js'
 import { CleanupManager } from '../../core/cleanup.js'
 import { EvidenceBuilder } from '../../core/evidence-builder.js'
-import { pack, scenarios } from '../../scenarios/preventive-baseline/index.js'
+import { pack as preventivePack, scenarios as preventiveScenarios } from '../../scenarios/preventive-baseline/index.js'
+import { pack as runtimePack, scenarios as runtimeScenarios } from '../../scenarios/runtime-baseline/index.js'
 import type { ScenarioDefinition } from '../../types/scenario.js'
+import type { RuntimeScenarioDefinition } from '../../types/runtime-scenario.js'
 import type { ScenarioResult } from '../../types/evidence.js'
 import { header, field, section, indent, outcomeLabel, blank } from '../output.js'
 import chalk from 'chalk'
 
 const DEFAULT_NAMESPACE = 'chaosclaw-tests'
 const DEFAULT_TIMEOUT_MS = 30_000
+const DEFAULT_RUNTIME_TIMEOUT_MS = 60_000
+
+type AnyScenario = ScenarioDefinition | RuntimeScenarioDefinition
+
+function isRuntimeScenario(s: AnyScenario): s is RuntimeScenarioDefinition {
+  return 'execStep' in s
+}
 
 /**
  * Attaches the "run" subcommand to the given parent command.
@@ -37,9 +49,10 @@ export function registerRunCommand(verify: Command): void {
     .option('--expect <outcome>', 'Expected admission outcome when using --manifest: rejected or allowed')
     .option('--context <name>', 'Kubernetes context to use')
     .option('--namespace <name>', 'Test namespace', DEFAULT_NAMESPACE)
+    .option('--alert-source <tool>', 'Runtime alert source: none (default). Future: falco, tetragon, kubearmor', 'none')
     .option('--output <path>', 'Write JSON evidence artifact to file')
     .option('--format <mode>', 'Output mode: table, json', 'table')
-    .option('--timeout <ms>', 'Per-scenario timeout in milliseconds', String(DEFAULT_TIMEOUT_MS))
+    .option('--timeout <ms>', 'Per-scenario timeout in milliseconds')
     .option('--fail-fast', 'Stop after first failed scenario')
     .option('--cleanup <mode>', 'Cleanup mode: always, on-success', 'always')
     .option('--verbose', 'Print raw API response and manifest snapshot for each non-passing scenario')
@@ -50,9 +63,10 @@ export function registerRunCommand(verify: Command): void {
       expect?: string
       context?: string
       namespace: string
+      alertSource: string
       output?: string
       format: string
-      timeout: string
+      timeout?: string
       failFast?: boolean
       cleanup: string
       verbose?: boolean
@@ -63,6 +77,7 @@ export function registerRunCommand(verify: Command): void {
         console.error('\nError\n  Missing required target: specify exactly one of --pack, --scenario, or --manifest')
         console.error('\nExamples')
         console.error('  chaosclaw verify run --pack preventive-baseline')
+        console.error('  chaosclaw verify run --pack runtime-baseline --alert-source none')
         console.error('  chaosclaw verify run --scenario deny-hostpath')
         console.error('  chaosclaw verify run --manifest ./my-pod.yaml --expect rejected')
         process.exit(4)
@@ -80,16 +95,23 @@ export function registerRunCommand(verify: Command): void {
         process.exit(4)
       }
 
-      let targetScenarios: ScenarioDefinition[]
+      let targetScenarios: AnyScenario[]
       if (opts.manifest) {
         targetScenarios = [await loadManifestScenario(opts.manifest, opts.expect!)]
       } else {
-        const registry = buildRegistry()
-        targetScenarios = resolveScenarios(registry, opts)
+        targetScenarios = resolveScenarios(opts)
         if (targetScenarios.length === 0) {
           console.error(`\nError\n  No scenarios found for ${opts.pack ? `pack "${opts.pack}"` : `scenario "${opts.scenario}"`}`)
           process.exit(4)
         }
+      }
+
+      const hasRuntime = targetScenarios.some(isRuntimeScenario)
+
+      if (hasRuntime && opts.alertSource === 'none' && opts.format !== 'json') {
+        console.log(chalk.yellow('\n[WARN] No alert source configured (--alert-source none)'))
+        console.log(chalk.yellow('       Runtime scenarios will execute but all observed outcomes will be "no_alert".'))
+        console.log(chalk.yellow('       Install Falco, Tetragon, or KubeArmor and use --alert-source <tool> for real results.\n'))
       }
 
       // Set up the Kubernetes client once and share it across executor, cleanup, etc.
@@ -103,6 +125,8 @@ export function registerRunCommand(verify: Command): void {
 
       const executor = new ScenarioExecutor(kc)
       const validator = new ValidationEngine()
+      const runtimeExecutor = hasRuntime ? new RuntimeScenarioExecutor(kc, buildAlertSource(opts.alertSource)) : null
+      const runtimeValidator = new RuntimeValidationEngine()
       const cleanup = new CleanupManager(kc)
       const builder = new EvidenceBuilder({
         clusterContext,
@@ -111,9 +135,6 @@ export function registerRunCommand(verify: Command): void {
         scenarioId: opts.scenario,
         startedAt: new Date().toISOString(),
       })
-
-      // parseInt is safe here because commander validates the flag is present
-      const timeoutMs = parseInt(opts.timeout, 10)
 
       if (opts.format !== 'json') {
         header('ChaosClaw Verification Run')
@@ -127,6 +148,7 @@ export function registerRunCommand(verify: Command): void {
         field('Scenarios', String(targetScenarios.length))
         field('Test Namespace', opts.namespace)
         field('Cleanup', opts.cleanup)
+        if (hasRuntime) field('Alert Source', opts.alertSource)
         if (opts.failFast) field('Mode', 'fail-fast')
         if (opts.verbose) field('Verbose', 'on')
         section(targetScenarios.length === 1 ? 'Running Scenario' : 'Running Scenarios')
@@ -136,33 +158,68 @@ export function registerRunCommand(verify: Command): void {
       let notRun = 0
 
       for (const scenario of targetScenarios) {
-        const execution = await executor.execute(scenario, { namespace: opts.namespace, timeoutMs })
-        const validation = validator.validate(scenario, execution)
+        let result: ScenarioResult
 
-        // Only populate createdResources when the cluster actually admitted the workload
-        const createdResources = execution.createdResourceName
-          ? [{ kind: 'Pod' as const, name: execution.createdResourceName, namespace: opts.namespace }]
-          : []
+        if (isRuntimeScenario(scenario)) {
+          const timeoutMs = opts.timeout ? parseInt(opts.timeout, 10) : DEFAULT_RUNTIME_TIMEOUT_MS
+          const execution = await runtimeExecutor!.execute(scenario, { namespace: opts.namespace, timeoutMs })
+          const validation = runtimeValidator.validate(scenario, execution)
 
-        // Respect --cleanup mode: skip deletion when on-success and the scenario failed
-        const shouldCleanup = opts.cleanup === 'always' || (opts.cleanup === 'on-success' && validation.status === 'Pass')
-        const cleanupResult = shouldCleanup
-          ? await cleanup.cleanup(createdResources)
-          : { status: 'skipped' as const, remainingResources: [] }
+          const createdResources = execution.createdResourceName
+            ? [{ kind: 'Pod' as const, name: execution.createdResourceName, namespace: opts.namespace }]
+            : []
 
-        const result: ScenarioResult = {
-          scenarioId: scenario.id,
-          version: scenario.version,
-          status: validation.status,
-          // Replace underscore with space for human-readable output
-          expectedOutcome: scenario.expectedOutcome.type.replace('_', ' '),
-          observedOutcome: validation.observedOutcome,
-          cleanupStatus: cleanupResult.status,
-          startedAt: execution.startedAt,
-          endedAt: execution.endedAt,
-          rawResponse: execution.rawResponse,
-          manifestSnapshot: execution.manifestSnapshot,
-          likelyIssue: validation.likelyIssue,
+          const shouldCleanup = opts.cleanup === 'always' || (opts.cleanup === 'on-success' && validation.status === 'Pass')
+          const cleanupResult = shouldCleanup
+            ? await cleanup.cleanup(createdResources)
+            : { status: 'skipped' as const, remainingResources: [] }
+
+          result = {
+            scenarioId: scenario.id,
+            version: scenario.version,
+            status: validation.status,
+            expectedOutcome: scenario.expectedOutcome.type.replace('_', ' '),
+            observedOutcome: validation.observedOutcome,
+            cleanupStatus: cleanupResult.status,
+            startedAt: execution.startedAt,
+            endedAt: execution.endedAt,
+            rawResponse: execution.alertDetail
+              ? JSON.stringify(execution.alertDetail)
+              : execution.rawResponse,
+            manifestSnapshot: execution.manifestSnapshot,
+            likelyIssue: validation.likelyIssue,
+          }
+
+          printCleanupWarning(cleanupResult)
+        } else {
+          const timeoutMs = opts.timeout ? parseInt(opts.timeout, 10) : DEFAULT_TIMEOUT_MS
+          const execution = await executor.execute(scenario, { namespace: opts.namespace, timeoutMs })
+          const validation = validator.validate(scenario, execution)
+
+          const createdResources = execution.createdResourceName
+            ? [{ kind: 'Pod' as const, name: execution.createdResourceName, namespace: opts.namespace }]
+            : []
+
+          const shouldCleanup = opts.cleanup === 'always' || (opts.cleanup === 'on-success' && validation.status === 'Pass')
+          const cleanupResult = shouldCleanup
+            ? await cleanup.cleanup(createdResources)
+            : { status: 'skipped' as const, remainingResources: [] }
+
+          result = {
+            scenarioId: scenario.id,
+            version: scenario.version,
+            status: validation.status,
+            expectedOutcome: scenario.expectedOutcome.type.replace('_', ' '),
+            observedOutcome: validation.observedOutcome,
+            cleanupStatus: cleanupResult.status,
+            startedAt: execution.startedAt,
+            endedAt: execution.endedAt,
+            rawResponse: execution.rawResponse,
+            manifestSnapshot: execution.manifestSnapshot,
+            likelyIssue: validation.likelyIssue,
+          }
+
+          printCleanupWarning(cleanupResult)
         }
 
         builder.addResult(result)
@@ -176,26 +233,11 @@ export function registerRunCommand(verify: Command): void {
           }
         }
 
-        if (validation.status === 'Fail' || validation.status === 'Error') {
+        if (result.status === 'Fail' || result.status === 'Error') {
           exitCode = 1
           if (opts.failFast) {
-            // Calculate how many scenarios were skipped due to early exit
             notRun = targetScenarios.length - targetScenarios.indexOf(scenario) - 1
             break
-          }
-        }
-
-        // Warn the user immediately when cleanup fails so they can act before the next scenario
-        if (cleanupResult.remainingResources.length > 0) {
-          blank()
-          console.log(chalk.yellow('[WARN] Cleanup incomplete'))
-          section('Details')
-          for (const r of cleanupResult.remainingResources) {
-            indent(`${r.kind} ${r.name} could not be deleted automatically`)
-          }
-          section('Next')
-          for (const r of cleanupResult.remainingResources) {
-            indent(`kubectl delete ${r.kind.toLowerCase()} ${r.name} -n ${r.namespace}`)
           }
         }
       }
@@ -261,24 +303,52 @@ export function registerRunCommand(verify: Command): void {
     })
 }
 
-/** Populate a fresh registry with the built-in preventive-baseline pack and its scenarios */
-function buildRegistry(): ScenarioRegistry {
-  const registry = new ScenarioRegistry()
-  registry.registerPack(pack)
-  for (const s of scenarios) registry.register(s)
-  return registry
+/** Build the unified alert source from the --alert-source flag value */
+function buildAlertSource(tool: string) {
+  switch (tool) {
+    case 'none':
+    default:
+      return new NullAlertSource()
+  }
+}
+
+/** Populate a fresh registry with all built-in packs and scenarios */
+function buildRegistry(): { preventive: ScenarioRegistry; runtime: Map<string, RuntimeScenarioDefinition>; runtimePacks: Map<string, string[]> } {
+  const preventive = new ScenarioRegistry()
+  preventive.registerPack(preventivePack)
+  for (const s of preventiveScenarios) preventive.register(s)
+
+  const runtime = new Map<string, RuntimeScenarioDefinition>()
+  for (const s of runtimeScenarios) runtime.set(s.id, s)
+
+  const runtimePacks = new Map<string, string[]>()
+  runtimePacks.set(runtimePack.id, runtimePack.scenarioIds)
+
+  return { preventive, runtime, runtimePacks }
 }
 
 /**
- * Translate --pack / --scenario CLI flags into a concrete list of ScenarioDefinitions.
- * Returns an empty array when the requested pack or scenario ID is not found.
+ * Translate --pack / --scenario CLI flags into a concrete list of scenarios
+ * drawn from both the preventive and runtime registries.
  */
-function resolveScenarios(registry: ScenarioRegistry, opts: { pack?: string; scenario?: string }): ScenarioDefinition[] {
-  if (opts.pack) return registry.getScenariosForPack(opts.pack)
-  if (opts.scenario) {
-    const s = registry.getScenario(opts.scenario)
-    return s ? [s] : []
+function resolveScenarios(opts: { pack?: string; scenario?: string }): AnyScenario[] {
+  const { preventive, runtime, runtimePacks } = buildRegistry()
+
+  if (opts.pack) {
+    const preventiveResults = preventive.getScenariosForPack(opts.pack)
+    const runtimeIds = runtimePacks.get(opts.pack) ?? []
+    const runtimeResults = runtimeIds.map(id => runtime.get(id)).filter((s): s is RuntimeScenarioDefinition => s !== undefined)
+    return [...preventiveResults, ...runtimeResults]
   }
+
+  if (opts.scenario) {
+    const p = preventive.getScenario(opts.scenario)
+    if (p) return [p]
+    const r = runtime.get(opts.scenario)
+    if (r) return [r]
+    return []
+  }
+
   return []
 }
 
@@ -343,5 +413,19 @@ async function ensureNamespace(kc: k8s.KubeConfig, namespace: string): Promise<v
   } catch (err: unknown) {
     const code = (err as { code?: number; statusCode?: number }).code ?? (err as { statusCode?: number }).statusCode
     if (code !== 409) throw err
+  }
+}
+
+function printCleanupWarning(cleanupResult: { remainingResources: Array<{ kind: string; name: string; namespace: string }> }): void {
+  if (cleanupResult.remainingResources.length === 0) return
+  blank()
+  console.log(chalk.yellow('[WARN] Cleanup incomplete'))
+  section('Details')
+  for (const r of cleanupResult.remainingResources) {
+    indent(`${r.kind} ${r.name} could not be deleted automatically`)
+  }
+  section('Next')
+  for (const r of cleanupResult.remainingResources) {
+    indent(`kubectl delete ${r.kind.toLowerCase()} ${r.name} -n ${r.namespace}`)
   }
 }

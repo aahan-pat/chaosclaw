@@ -1,6 +1,6 @@
 # ChaosClaw MVP Progress
 
-**Last updated:** 2026-04-05
+**Last updated:** 2026-04-19
 
 ---
 
@@ -57,12 +57,15 @@
 ### Runtime detection
 
 - [x] `src/core/runtime-executor.ts` — skeleton: `RuntimeScenarioExecutor`, `RuntimeAlertSource` interface, `RuntimeAlert`, `RuntimeObservedOutcome`, `RuntimeExecutionResult`
+- [x] `src/core/runtime-validator.ts` — validates alert-based outcomes (alert_fired, action_blocked, no_alert)
+- [x] `src/core/alert-sources/null.ts` — `NullAlertSource` (no-op, for pipeline testing without a real tool)
+- [x] Runtime scenarios registered in `src/scenarios/runtime-baseline/` — `detect-read-sensitive-file`
+- [x] Runtime executor wired to CLI — `verify run --pack runtime-baseline --alert-source none`
+- [x] `scenarios list` and `scenarios show` updated to display runtime scenarios
 - [ ] `RuntimeAlertSource` adapter: Falco (HTTP/gRPC)
 - [ ] `RuntimeAlertSource` adapter: Tetragon (gRPC)
 - [ ] `RuntimeAlertSource` adapter: KubeArmor (gRPC)
-- [ ] `src/core/runtime-validator.ts` — validates alert-based outcomes (alert_fired, action_blocked, no_alert)
 - [ ] Runtime preflight checks (detect which runtime tools are present on the cluster)
-- [ ] Runtime scenarios registered in `src/scenarios/runtime-baseline/`
 
 ### Tests
 

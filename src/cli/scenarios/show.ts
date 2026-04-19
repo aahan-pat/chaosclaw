@@ -4,11 +4,17 @@
 import type { Command } from 'commander'
 import { ScenarioRegistry } from '../../core/registry.js'
 import { pack, scenarios } from '../../scenarios/preventive-baseline/index.js'
+import { scenarios as runtimeScenarios } from '../../scenarios/runtime-baseline/index.js'
+import type { RuntimeScenarioDefinition } from '../../types/runtime-scenario.js'
 import { header, field, section, indent, blank } from '../output.js'
+
+function isRuntimeScenario(s: unknown): s is RuntimeScenarioDefinition {
+  return typeof s === 'object' && s !== null && 'execStep' in s
+}
 
 /**
  * Attaches the "show <id>" subcommand to the given parent command.
- * Exits with code 4 if the requested scenario ID is not found in the registry.
+ * Exits with code 4 if the requested scenario ID is not found in either registry.
  */
 export function registerShowCommand(scenariosCmd: Command): void {
   scenariosCmd
@@ -19,7 +25,9 @@ export function registerShowCommand(scenariosCmd: Command): void {
       registry.registerPack(pack)
       for (const s of scenarios) registry.register(s)
 
-      const scenario = registry.getScenario(id)
+      const runtimeById = new Map<string, RuntimeScenarioDefinition>(runtimeScenarios.map(s => [s.id, s]))
+
+      const scenario = registry.getScenario(id) ?? runtimeById.get(id)
       if (!scenario) {
         console.error(`\nError\n  Scenario not found: "${id}"`)
         console.error('\n  Run "chaosclaw scenarios list" to see available scenarios')
@@ -30,12 +38,18 @@ export function registerShowCommand(scenariosCmd: Command): void {
       field('Version', String(scenario.version))
       field('Category', scenario.category)
       field('Control Objective', scenario.controlObjective)
-      // Display as human-readable "admission rejected" rather than the raw enum value
       field('Expected Outcome', scenario.expectedOutcome.type.replace('_', ' '))
       field('Risk Level', scenario.safety.level)
 
       section('Description')
       indent(scenario.description)
+
+      if (isRuntimeScenario(scenario)) {
+        section('Exec Step')
+        indent(`Container: ${scenario.execStep.container}`)
+        indent(`Command:   ${scenario.execStep.command.join(' ')}`)
+        if (scenario.execStep.timeoutMs) indent(`Timeout:   ${scenario.execStep.timeoutMs}ms`)
+      }
 
       if (scenario.prerequisites.length > 0) {
         section('Prerequisites')
@@ -44,7 +58,6 @@ export function registerShowCommand(scenariosCmd: Command): void {
         }
       }
 
-      // Show which packs include this scenario so users know how to run it as part of a suite
       if (scenario.packMembership && scenario.packMembership.length > 0) {
         section('Pack Membership')
         for (const p of scenario.packMembership) {
