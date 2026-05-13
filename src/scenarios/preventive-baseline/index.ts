@@ -7,9 +7,10 @@ import { scenario as denyHostpath } from './deny-hostpath.js'
 import { scenario as denyForbiddenCapabilities } from './deny-forbidden-capabilities.js'
 import { scenario as denyLatestTag } from './deny-latest-tag.js'
 import { scenario as denyPrivilegeEscalation } from './deny-privilege-escalation.js'
+import { scenario as denyHostNetwork } from './deny-host-network.js'
 
 /**
- * The preventive-baseline pack groups the five core guardrail scenarios together
+ * The preventive-baseline pack groups the core guardrail scenarios together
  * so they can be run as a single suite: `chaosclaw verify run --pack preventive-baseline`
  */
 export const pack: ScenarioPack = {
@@ -24,6 +25,7 @@ export const pack: ScenarioPack = {
     'deny-forbidden-capabilities',
     'deny-latest-tag',
     'deny-privilege-escalation',
+    'deny-host-network',
   ],
 }
 
@@ -34,4 +36,5 @@ export const scenarios = [
   denyForbiddenCapabilities,
   denyLatestTag,
   denyPrivilegeEscalation,
+  denyHostNetwork,
 ]
