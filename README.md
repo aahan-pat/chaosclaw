@@ -190,35 +190,55 @@ ChaosClaw is designed to be safe to run in real clusters.
 - Every scenario has an execution timeout
 - The CLI requires only the minimum permissions needed for the selected scenarios
 
-## OpenClaw skill
+## OpenClaw skills
 
-ChaosClaw ships a Claude Code skill that teaches OpenClaw how to run verification workflows: preflight checks, scenario pack runs, result parsing, failure summarization, and fleet fan-out.
+ChaosClaw ships two OpenClaw skills in `skills/`:
 
-### Install
+| Skill | Trigger | Description |
+|---|---|---|
+| `chaosclaw` ⚔️ | "Verify controls on this cluster" | Targeted control verification — preflight, scenario pack runs, result parsing, failure summarization, fleet fan-out |
+| `openclaw-pentest` 🔥 | "Pentest this cluster" | Autonomous security assessment — runs all packs, correlates findings across preventive and runtime layers, produces a prioritized Critical/High/Gap report |
 
-Copy the skill file into your Claude Code project's skills directory:
+Use `chaosclaw` when you know what you want to run. Use `openclaw-pentest` when you want OpenClaw to assess the cluster's overall security posture and surface what's missing.
 
-```bash
-# From within your OpenClaw project (or any Claude Code project)
-cp path/to/chaosclaw/skills/chaosclaw.md .claude/skills/chaosclaw.md
+### Register with OpenClaw
+
+Add the skills directory to `~/.openclaw/openclaw.json`:
+
+```json
+{
+  "skills": {
+    "load": {
+      "extraDirs": ["/path/to/chaosclaw/skills"],
+      "watch": true
+    },
+    "entries": {
+      "chaosclaw": { "enabled": true },
+      "openclaw-pentest": { "enabled": true }
+    }
+  }
+}
 ```
 
-Restart or reload Claude Code, then invoke the skill:
+### Skill structure
+
+Each skill follows the orchestrator + references pattern:
 
 ```
-/chaosclaw
+skills/
+  chaosclaw/
+    SKILL.md                  ← workflows and safety rules
+    references/
+      goal-elaboration.md     ← result vocabulary, summarization, fleet aggregation
+      cli-reference.md        ← commands, JSON schema, exit codes, remediation
+  openclaw-pentest/
+    SKILL.md                  ← pentest workflow and authorization gate
+    references/
+      goal-elaboration.md     ← scope, cross-pack correlation, severity, report structure
+      cli-reference.md        ← commands, exit codes, scenario reference, remediation
 ```
 
-The skill covers four workflows:
-
-| Workflow | Description |
-|---|---|
-| `verify_cluster_baseline` | Preflight + baseline pack run on one cluster |
-| `rerun_failed_scenarios` | Targeted rerun after a policy fix |
-| `verify_prod_fleet` | Fan-out across a `clusters.yaml` inventory |
-| Scenario discovery | List and inspect available scenarios |
-
-The skill reads ChaosClaw's JSON evidence artifacts to summarize failures and suggest remediation steps. ChaosClaw owns the pass/fail verdict; the skill owns the workflow and explanation layer.
+ChaosClaw owns the pass/fail verdict. The skills own the workflow, interpretation, and remediation guidance layer.
 
 ---
 
