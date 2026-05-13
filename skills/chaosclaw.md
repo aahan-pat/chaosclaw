@@ -1,5 +1,7 @@
 ---
-description: Verify Kubernetes preventive controls using the ChaosClaw CLI. Runs preflight checks, executes scenario packs against a cluster, parses evidence artifacts, and summarizes failures with remediation guidance. Use for single-cluster or fleet-wide control verification workflows.
+name: chaosclaw
+description: Verify Kubernetes preventive controls using the ChaosClaw CLI — preflight checks, scenario pack runs, evidence parsing, and failure summarization for single-cluster or fleet-wide workflows.
+metadata: {"openclaw": {"emoji": "⚔️", "requires": {"bins": ["chaosclaw", "kubectl"]}, "install": [{"id": "brew", "kind": "brew", "formula": "chaosclaw", "bins": ["chaosclaw"], "label": "Install ChaosClaw (brew)"}]}}
 ---
 
 TRIGGER when: the user asks to verify Kubernetes controls, guardrails, admission policies, or Kyverno policies; asks to run ChaosClaw or a ChaosClaw scenario pack; asks to check whether a cluster's preventive controls are working; asks to investigate a failed control; or uses terms like "control verification", "preventive baseline", or "deny-*" scenario names.
