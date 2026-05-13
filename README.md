@@ -190,6 +190,38 @@ ChaosClaw is designed to be safe to run in real clusters.
 - Every scenario has an execution timeout
 - The CLI requires only the minimum permissions needed for the selected scenarios
 
+## OpenClaw skill
+
+ChaosClaw ships a Claude Code skill that teaches OpenClaw how to run verification workflows: preflight checks, scenario pack runs, result parsing, failure summarization, and fleet fan-out.
+
+### Install
+
+Copy the skill file into your Claude Code project's skills directory:
+
+```bash
+# From within your OpenClaw project (or any Claude Code project)
+cp path/to/chaosclaw/skills/chaosclaw.md .claude/skills/chaosclaw.md
+```
+
+Restart or reload Claude Code, then invoke the skill:
+
+```
+/chaosclaw
+```
+
+The skill covers four workflows:
+
+| Workflow | Description |
+|---|---|
+| `verify_cluster_baseline` | Preflight + baseline pack run on one cluster |
+| `rerun_failed_scenarios` | Targeted rerun after a policy fix |
+| `verify_prod_fleet` | Fan-out across a `clusters.yaml` inventory |
+| Scenario discovery | List and inspect available scenarios |
+
+The skill reads ChaosClaw's JSON evidence artifacts to summarize failures and suggest remediation steps. ChaosClaw owns the pass/fail verdict; the skill owns the workflow and explanation layer.
+
+---
+
 ## Architecture
 
 ChaosClaw is a single-cluster CLI. It owns scenario definitions, preflight checks, execution, validation semantics, cleanup, and the JSON evidence schema.
