@@ -39,6 +39,50 @@ chaosclaw scenarios list --pack preventive-baseline
 chaosclaw scenarios show <scenario-id>
 ```
 
+## Recon commands
+
+The `recon` group surveys the cluster's security posture. These are read-only — they do not submit workloads.
+
+### Initialize test namespace
+
+```bash
+chaosclaw recon init --context <context-name>
+```
+
+Creates the `chaosclaw` namespace, `ResourceQuota` (pods: 10, cpu: 2, memory: 2Gi), `ServiceAccount` `chaosclaw-runner`, and a namespace-scoped `Role`/`RoleBinding`. Idempotent — safe to run on an existing namespace.
+
+### Full survey
+
+```bash
+chaosclaw recon all --context <context-name> --output recon.json
+```
+
+Runs all seven tools sequentially. Options: `--skip <tools>` (comma-separated), `--include-system` (RBAC), `--format json`.
+
+### Individual tools
+
+```bash
+chaosclaw recon webhooks          --context <ctx>
+chaosclaw recon policies          --context <ctx> [--engine kyverno|gatekeeper|auto]
+chaosclaw recon psa               --context <ctx>
+chaosclaw recon rbac              --context <ctx> [--include-system]
+chaosclaw recon nodes             --context <ctx>
+chaosclaw recon network-policies  --context <ctx>
+chaosclaw recon runtime-agents    --context <ctx>
+```
+
+All support `--output <file>` and `--format json`.
+
+### Recon finding severities
+
+| Severity | Meaning |
+|---|---|
+| `CRITICAL` | Fundamental control absent (e.g., no policy engine) |
+| `HIGH` | Significant gap (e.g., fail-open webhook, no runtime agent, cluster-admin over-binding) |
+| `WARN` | Weakness that reduces defense depth (e.g., Audit-mode policies, no egress policies) |
+| `INFO` | Informational observation (e.g., kernel version outlier) |
+| `SKIP` | Tool could not complete — insufficient permissions; see `coverageImpact` |
+
 ## JSON artifact schema
 
 Top-level fields of `chaosclaw-result.json`:
@@ -82,6 +126,7 @@ Each entry in `results`:
 | `deny-forbidden-capabilities` | Restrict dangerous Linux capabilities |
 | `deny-latest-tag` | Prevent mutable image tags |
 | `deny-privilege-escalation` | Prevent privilege escalation |
+| `deny-host-network` | Prevent host network namespace access |
 
 ## Remediation reference
 
@@ -98,3 +143,5 @@ Always confirm with the user before suggesting policy changes on production clus
 **`deny-latest-tag`** — Verify the policy applies to all containers including init containers, and is not scoped to a specific namespace.
 
 **`deny-privilege-escalation`** — Confirm `allowPrivilegeEscalation: false` is enforced at admission, not just set as a default that workloads can override.
+
+**`deny-host-network`** — Verify the policy covers `hostNetwork: true` on bare Pods, not just Deployments.

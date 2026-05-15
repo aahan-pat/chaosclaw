@@ -6,7 +6,7 @@ metadata: {"openclaw": {"emoji": "⚔️", "requires": {"bins": ["chaosclaw", "k
 
 TRIGGER when: the user asks to verify Kubernetes controls, guardrails, admission policies, or Kyverno policies; asks to run ChaosClaw or a ChaosClaw scenario pack; asks to check whether a cluster's preventive controls are working; asks to investigate a failed control; or uses terms like "control verification", "preventive baseline", or "deny-*" scenario names.
 
-SKIP: general Kubernetes debugging unrelated to admission controls or preventive policies; questions about ChaosClaw internals or source code.
+SKIP: full cluster pentesting or security assessments — use the `openclaw-pentest` skill instead. Skip general Kubernetes debugging unrelated to admission controls or preventive policies; questions about ChaosClaw internals or source code.
 
 ---
 
@@ -33,13 +33,20 @@ Use when the user wants to verify a single cluster.
 **Step 1 — Resolve cluster context.**
 Ask the user which Kubernetes context to use if not already known. Run `kubectl config get-contexts`. Confirm before proceeding — never silently choose a context.
 
-**Step 2 — Run preflight.**
+**Step 2 — Initialize the test namespace (first run only).**
+If this is the first time running against this cluster, initialize the `chaosclaw` namespace:
+```bash
+chaosclaw recon init --context <context-name>
+```
+See `references/cli-reference.md` §Recon commands. Skip if the user confirms it already exists.
+
+**Step 3 — Run preflight.**
 See `references/cli-reference.md` §Preflight for the command and how to handle each outcome.
 
-**Step 3 — Run the baseline pack.**
+**Step 4 — Run the baseline pack.**
 See `references/cli-reference.md` §Run. Write output to `chaosclaw-result.json`.
 
-**Step 4 — Parse and summarize results.**
+**Step 5 — Parse and summarize results.**
 Read the JSON artifact. Follow the summarization rules in `references/goal-elaboration.md` §Summarization.
 
 ---
