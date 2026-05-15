@@ -1,10 +1,15 @@
 # ChaosClaw
 
-ChaosClaw is a deterministic CLI for Kubernetes Continuous Control Verification. It proves whether your preventive Kubernetes guardrails actually work — not just whether they are configured.
+ChaosClaw is a safe, namespace-scoped execution environment for Kubernetes security verification. It proves whether your Kubernetes guardrails actually work — not just whether they are configured — and serves as the controlled execution sandbox for OpenClaw-driven pentesting.
 
 ## What it does
 
-ChaosClaw connects to a Kubernetes cluster and runs preventive-control verification scenarios. Each scenario attempts a specific action that your policies should block, then reports whether the cluster behaved as expected.
+ChaosClaw connects to a Kubernetes cluster and executes security verification tests inside a dedicated, RBAC-enforced test namespace. It cannot touch any other namespace in the cluster — this is enforced at the Kubernetes permission level, not just by convention.
+
+Tests can be driven two ways:
+
+- **Built-in scenario packs** — pre-built deterministic scenarios for common preventive controls (optional)
+- **Arbitrary manifests** — supply any manifest via `--manifest` and declare the expected outcome; OpenClaw uses this to drive free-form pentesting without being constrained to pre-defined scenarios
 
 Results are one of four outcomes: `PASS`, `FAIL`, `ERROR`, or `SKIPPED`. Every run produces a structured JSON artifact as evidence.
 
@@ -14,8 +19,11 @@ Results are one of four outcomes: `PASS`, `FAIL`, `ERROR`, or `SKIPPED`. Every r
 # Check that the cluster is ready
 chaosclaw verify preflight
 
-# Run the preventive baseline pack
+# Run the preventive baseline pack (optional built-in scenarios)
 chaosclaw verify run --pack preventive-baseline
+
+# Or supply any manifest directly (used by OpenClaw for free-form pentesting)
+chaosclaw verify run --manifest ./my-pod.yaml --expect rejected
 ```
 
 ## Commands
@@ -31,10 +39,15 @@ chaosclaw verify preflight --output json
 ### Run verification
 
 ```bash
+# Built-in scenario packs (optional)
 chaosclaw verify run --pack preventive-baseline
 chaosclaw verify run --scenario deny-privileged-container
 chaosclaw verify run --pack preventive-baseline --context prod-us-east
 chaosclaw verify run --pack preventive-baseline --output result.json
+
+# Arbitrary manifest (primary interface for OpenClaw)
+chaosclaw verify run --manifest ./my-pod.yaml --expect rejected
+chaosclaw verify run --manifest ./my-deployment.yaml --expect allowed
 ```
 
 ### Scenario discovery
@@ -181,14 +194,15 @@ Every run can produce a structured evidence artifact. Use `--output <path>` to w
 
 ## Safety model
 
-ChaosClaw is designed to be safe to run in real clusters.
+ChaosClaw is designed to be safe to run in real clusters, including production.
 
+- **RBAC-enforced namespace isolation** — ChaosClaw's service account is bound to the dedicated test namespace only; it structurally cannot read, write, or affect any other namespace
 - All execution is confined to a dedicated test namespace (`chaosclaw-tests` by default)
 - No user workloads or application namespaces are modified
-- Cleanup always runs after every scenario, even on failure
-- Scenarios run sequentially, not concurrently
-- Every scenario has an execution timeout
-- The CLI requires only the minimum permissions needed for the selected scenarios
+- Cleanup always runs after every test, even on failure
+- Tests run sequentially, not concurrently
+- Every test has an execution timeout
+- A `ResourceQuota` is applied to the test namespace to bound resource usage
 
 ## OpenClaw skills
 
@@ -197,9 +211,9 @@ ChaosClaw ships two OpenClaw skills in `skills/`:
 | Skill | Trigger | Description |
 |---|---|---|
 | `chaosclaw` ⚔️ | "Verify controls on this cluster" | Targeted control verification — preflight, scenario pack runs, result parsing, failure summarization, fleet fan-out |
-| `openclaw-pentest` 🔥 | "Pentest this cluster" | Autonomous security assessment — runs all packs, correlates findings across preventive and runtime layers, produces a prioritized Critical/High/Gap report |
+| `openclaw-pentest` 🔥 | "Pentest this cluster" | Autonomous security assessment — OpenClaw decides what to test and generates manifests freely; ChaosClaw executes each one safely in the scoped namespace and records outcomes. Produces a prioritized Critical/High/Gap report. |
 
-Use `chaosclaw` when you know what you want to run. Use `openclaw-pentest` when you want OpenClaw to assess the cluster's overall security posture and surface what's missing.
+Use `chaosclaw` when you know what you want to run. Use `openclaw-pentest` when you want OpenClaw to assess the cluster's security posture without being constrained to pre-defined scenarios.
 
 ### Register with OpenClaw
 
@@ -244,9 +258,9 @@ ChaosClaw owns the pass/fail verdict. The skills own the workflow, interpretatio
 
 ## Architecture
 
-ChaosClaw is a single-cluster CLI. It owns scenario definitions, preflight checks, execution, validation semantics, cleanup, and the JSON evidence schema.
+ChaosClaw is a single-cluster CLI. Its primary role is as a **safe execution sandbox**: it enforces namespace isolation via RBAC, manages cleanup, records raw Kubernetes admission outcomes, and produces structured evidence. Scenario packs are optional built-ins.
 
-Multi-cluster orchestration is handled by **OpenClaw**, an optional agent layer that invokes ChaosClaw across a fleet, aggregates results, and supports remediation and re-test workflows. ChaosClaw owns correctness; OpenClaw owns orchestration.
+OpenClaw is the optional orchestration and intelligence layer. It decides what to test — including generating manifests dynamically for free-form pentesting — and submits them to ChaosClaw for safe execution. ChaosClaw owns correctness and safety; OpenClaw owns what gets tested and what the results mean.
 
 ```
 +--------------------------------------------------------------+
@@ -270,3 +284,4 @@ Multi-cluster orchestration is handled by **OpenClaw**, an optional agent layer 
 - [Architecture](docs/architecture.md) — system design, multi-cluster model, and roadmap
 - [CLI Design](docs/design.md) — UX principles, workflows, and command model
 - [Screen Library](docs/cli-design.md) — canonical terminal output examples
+- [Recon Layer Design](docs/recon-design.md) — reconnaissance command group, flag design, terminal output specs, and type contract

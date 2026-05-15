@@ -20,9 +20,12 @@ The goal is to make ChaosClaw feel:
 - fast to understand
 - easy to rerun after changes
 
-The CLI must help users answer one core question:
+ChaosClaw serves two audiences with one command surface:
 
-> **Do my Kubernetes preventive guardrails actually work?**
+- **Human operators** answering: *Do my Kubernetes preventive guardrails actually work?*
+- **OpenClaw** using ChaosClaw as a safe execution sandbox: *Run this manifest against the cluster and tell me what happened.*
+
+The CLI must make both paths clear and the safety model visible in both.
 
 ---
 
@@ -116,7 +119,7 @@ The CLI should assume users will re-run after fixing a policy. Rerun flows shoul
 
 ## 5. Primary Workflows
 
-The MVP should optimize for three workflows.
+The MVP should optimize for four workflows.
 
 ### Workflow 1: Preflight a cluster
 
@@ -141,6 +144,14 @@ I fixed a policy or suspect a gap. I want to rerun a scenario or pack and compar
 
 **Success condition:**
 The user can target a scenario or rerun the same pack with minimal friction.
+
+### Workflow 4: Execute an arbitrary manifest (OpenClaw-driven)
+
+**User intent (OpenClaw):**
+I've generated a manifest that tests a specific attack vector. Execute it safely and tell me whether it was admitted or rejected.
+
+**Success condition:**
+ChaosClaw executes the manifest in the RBAC-scoped test namespace, records the raw outcome against the declared expectation, and returns a structured result. OpenClaw can call this repeatedly with different manifests to conduct free-form pentesting without being constrained to pre-defined scenarios.
 
 ---
 

@@ -9,36 +9,36 @@
 
 ## 1. Executive Summary
 
-ChaosClaw should start as a **deterministic single-cluster CLI** for Kubernetes Continuous Control Verification.
+ChaosClaw is a **safe, namespace-scoped execution environment** for Kubernetes security verification.
 
-The MVP should focus on one core job:
+The MVP focuses on one core job:
 
-> **Prove that preventive Kubernetes guardrails actually work.**
+> **Prove that Kubernetes guardrails work — safely and without affecting production.**
 
 That means the first version should:
 
 - run against **one Kubernetes cluster at a time**
-- execute a small set of **deterministic preventive-control scenarios**
-- safely use a **scoped test namespace**
+- enforce **RBAC-scoped namespace isolation** so it structurally cannot affect any other namespace
+- accept tests via **built-in scenario packs** (optional) or **arbitrary manifests** supplied by the caller
 - capture **raw Kubernetes/admission outcomes**
 - produce **pass / fail / error / skipped** results
 - write **structured evidence** to JSON
 - work **without** any control plane or agent runtime
 
-OpenClaw comes in as the **optional orchestration layer**, not the verification engine.
+OpenClaw comes in as the **optional orchestration and intelligence layer**, not the verification engine.
 
 Its role is to:
 
+- decide what to test (including generating manifests dynamically for free-form pentesting)
 - coordinate runs across multiple clusters
-- map skills to scenario packs
-- summarize results
+- summarize results and surface security gaps
 - drive re-test workflows
 - add explanation and remediation guidance
 - enable future closed-loop workflows
 
 **Key design rule:**
 
-> **ChaosClaw owns correctness. OpenClaw owns orchestration.**
+> **ChaosClaw owns correctness and safety. OpenClaw owns what gets tested and what the results mean.**
 
 ---
 
@@ -83,14 +83,14 @@ All execution must be:
 - timeout-bound
 - automatically cleaned up
 
-### 3.4 Scenario definitions are declarative
-Scenario definitions should be versioned and data-driven so the engine can grow without constantly changing core logic.
+### 3.4 Built-in scenario packs are optional
+ChaosClaw ships optional pre-built scenario packs for common preventive controls. These are convenience — not the primary interface. The primary execution path is `--manifest`, which accepts any manifest from any caller. Scenario packs are declarative and versioned, but their presence is not required for ChaosClaw to be useful.
 
 ### 3.5 OpenClaw extends workflows; it does not redefine results
 OpenClaw may invoke ChaosClaw, summarize outcomes, and recommend next steps, but it should not own pass/fail semantics.
 
-### 3.7 Deterministic pre-baked queries, not LLM-generated ones
-ChaosClaw never generates queries, manifests, or test logic dynamically. Every scenario is pre-defined, audited, and versioned. The LLM's role in OpenClaw is to *choose* which scenarios to run and *interpret* the results — not to construct them. Dynamic query generation is a primary failure mode in LLM-automated security workflows; eliminating it is a design requirement, not just a preference.
+### 3.7 Namespace RBAC is the primary safety boundary
+ChaosClaw's safety guarantee is not about restricting what manifests can be submitted — it is about ensuring that whatever gets submitted cannot escape the test namespace. The CLI's service account is RBAC-bound to the test namespace only. This means OpenClaw can generate and submit arbitrary manifests for free-form pentesting, and the safety guarantee holds regardless. The blast radius is enforced structurally, not by convention.
 
 ### 3.6 Evidence must remain stable as the system scales
 The JSON evidence schema created by the single-cluster CLI should remain the same foundation for later multi-cluster aggregation.
@@ -153,13 +153,13 @@ This is intentionally narrow.
 ### In scope
 
 * single cluster per run
-* preventive controls only
+* RBAC-enforced test namespace isolation
+* execution via built-in scenario packs (optional) or arbitrary manifests (`--manifest`)
 * on-demand execution
-* deterministic scenario outcomes
+* deterministic outcome recording (pass/fail/error/skipped)
 * terminal output
 * JSON artifact output
 * strict cleanup
-* scoped test namespace
 * direct use of kubeconfig / current context
 
 ### Out of scope
@@ -168,7 +168,6 @@ This is intentionally narrow.
 * hosted control plane
 * multi-cluster orchestration
 * scheduling
-* runtime detection validation
 * remediation validation
 * recovery validation
 * ticketing / SIEM integration
@@ -499,11 +498,11 @@ OpenClaw is **optional** in MVP and becomes important when the product expands t
 
 OpenClaw should provide:
 
-* orchestration
-* skill-based invocation
-* explanation
+* deciding what to test — including generating manifests dynamically for free-form pentesting
+* orchestration and skill-based invocation
+* explanation and remediation guidance
 * workflow routing
-* summarization
+* summarization and gap analysis
 * fleet fan-out
 * re-test flows
 
@@ -511,7 +510,7 @@ It should **not** provide:
 
 * the core validation logic
 * the source of truth for pass/fail
-* direct ownership of scenario semantics
+* safety guarantees (those belong to ChaosClaw's RBAC enforcement)
 
 ---
 
@@ -519,9 +518,9 @@ It should **not** provide:
 
 Use the following model:
 
-### Scenario
+### Scenario (optional)
 
-A single deterministic test.
+A single pre-built deterministic test.
 
 Examples:
 
@@ -529,9 +528,9 @@ Examples:
 * `deny-hostpath`
 * `deny-unapproved-registry`
 
-### Scenario pack
+### Scenario pack (optional)
 
-A curated group of related scenarios.
+A curated group of related pre-built scenarios.
 
 Examples:
 
@@ -539,24 +538,30 @@ Examples:
 * `image-governance-pack`
 * `rbac-hardening-pack`
 
+### Manifest execution
+
+OpenClaw generates a manifest and submits it to ChaosClaw with an expected outcome. ChaosClaw executes it safely in the test namespace and records the result. No pre-defined scenario required.
+
 ### Skill
 
 A workflow wrapper that uses ChaosClaw.
 
 Examples:
 
-* `verify_cluster_baseline`
-* `verify_prod_fleet`
+* `verify_cluster_baseline` — runs a built-in pack
+* `openclaw-pentest` — generates manifests dynamically and submits them for execution
 * `summarize_failed_controls`
 * `rerun_failed_clusters`
 
 ### Mapping summary
 
-| Entity        | Owned by  | Purpose                                      |
-| ------------- | --------- | -------------------------------------------- |
-| Scenario      | ChaosClaw | Defines one deterministic test               |
-| Scenario Pack | ChaosClaw | Groups related scenarios                     |
-| Skill         | OpenClaw  | Invokes ChaosClaw and adds workflow behavior |
+| Entity           | Owned by  | Purpose                                               |
+| ---------------- | --------- | ----------------------------------------------------- |
+| Scenario         | ChaosClaw | Optional pre-built test                               |
+| Scenario Pack    | ChaosClaw | Optional group of pre-built tests                     |
+| Manifest         | OpenClaw  | Dynamically generated test input                      |
+| Execution sandbox| ChaosClaw | Safe, RBAC-scoped execution and outcome recording     |
+| Skill            | OpenClaw  | Invokes ChaosClaw and adds workflow and analysis layer|
 
 ---
 
@@ -781,24 +786,25 @@ This keeps aggregation downstream from the same core evidence model.
 
 ## 9.1 Owned by ChaosClaw
 
-* scenario definitions
-* scenario pack definitions
+* optional built-in scenario definitions and pack definitions
 * CLI contract
 * preflight logic
-* execution logic
-* validation semantics
+* RBAC-enforced namespace isolation (the primary safety boundary)
+* execution logic (accepts scenarios or arbitrary manifests)
+* validation semantics (pass/fail/error/skipped)
 * cleanup logic
 * JSON evidence schema
 * single-cluster safety guarantees
 
 ## 9.2 Owned by OpenClaw
 
+* deciding what to test (scenario selection or dynamic manifest generation)
 * skill execution
 * workflow routing
 * cluster fan-out
 * context isolation strategy
 * scheduling later
-* explanation
+* explanation and gap analysis
 * remediation guidance
 * re-test coordination
 * fleet summarization
@@ -949,7 +955,7 @@ Then use **OpenClaw as the orchestration layer** to expand the same engine into:
 
 ### Architectural statement
 
-> **ChaosClaw is the deterministic verification core for Continuous Control Verification. OpenClaw is the optional orchestration layer that scales ChaosClaw across clusters and workflows.**
+> **ChaosClaw is the safe execution sandbox for Kubernetes security verification. OpenClaw is the optional intelligence and orchestration layer that decides what to test, drives free-form pentesting, and scales ChaosClaw across clusters and workflows.**
 
 This gives you the cleanest path to:
 
