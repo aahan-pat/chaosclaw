@@ -4,6 +4,10 @@
 import { Command } from 'commander'
 import { registerPreflightCommand } from './verify/preflight.js'
 import { registerRunCommand } from './verify/run.js'
+import { registerExecCommand } from './verify/exec.js'
+import { registerNetworkCommand } from './verify/network.js'
+import { registerIdentityCommand } from './verify/identity.js'
+import { registerDetectCommand } from './verify/detect.js'
 import { registerListCommand } from './scenarios/list.js'
 import { registerShowCommand } from './scenarios/show.js'
 import { registerInitCommand } from './recon/init.js'
@@ -43,6 +47,10 @@ export function buildProgram(): Command {
 
   registerPreflightCommand(verify)
   registerRunCommand(verify)
+  registerExecCommand(verify)
+  registerNetworkCommand(verify)
+  registerIdentityCommand(verify)
+  registerDetectCommand(verify)
 
   // chaosclaw scenarios list | show
   const scenariosCmd = program

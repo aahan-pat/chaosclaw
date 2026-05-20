@@ -10,7 +10,7 @@ import { ScenarioExecutor } from '../../core/executor.js'
 import { ValidationEngine } from '../../core/validator.js'
 import { RuntimeScenarioExecutor } from '../../core/runtime-executor.js'
 import { RuntimeValidationEngine } from '../../core/runtime-validator.js'
-import { NullAlertSource } from '../../core/alert-sources/null.js'
+import { buildAlertSource } from '../../core/alert-sources/index.js'
 import { CleanupManager } from '../../core/cleanup.js'
 import { EvidenceBuilder } from '../../core/evidence-builder.js'
 import { pack as preventivePack, scenarios as preventiveScenarios } from '../../scenarios/preventive-baseline/index.js'
@@ -49,7 +49,7 @@ export function registerRunCommand(verify: Command): void {
     .option('--expect <outcome>', 'Expected admission outcome when using --manifest: rejected or allowed')
     .option('--context <name>', 'Kubernetes context to use')
     .option('--namespace <name>', 'Test namespace', DEFAULT_NAMESPACE)
-    .option('--alert-source <tool>', 'Runtime alert source: none (default). Future: falco, tetragon, kubearmor', 'none')
+    .option('--alert-source <tool>', 'Runtime alert source: none (default), falco, tetragon, kubearmor', 'none')
     .option('--output <path>', 'Write JSON evidence artifact to file')
     .option('--format <mode>', 'Output mode: table, json', 'table')
     .option('--timeout <ms>', 'Per-scenario timeout in milliseconds')
@@ -111,7 +111,7 @@ export function registerRunCommand(verify: Command): void {
       if (hasRuntime && opts.alertSource === 'none' && opts.format !== 'json') {
         console.log(chalk.yellow('\n[WARN] No alert source configured (--alert-source none)'))
         console.log(chalk.yellow('       Runtime scenarios will execute but all observed outcomes will be "no_alert".'))
-        console.log(chalk.yellow('       Install Falco, Tetragon, or KubeArmor and use --alert-source <tool> for real results.\n'))
+        console.log(chalk.yellow('       Use --alert-source falco, tetragon, or kubearmor to poll a real detection tool.\n'))
       }
 
       // Set up the Kubernetes client once and share it across executor, cleanup, etc.
@@ -125,7 +125,7 @@ export function registerRunCommand(verify: Command): void {
 
       const executor = new ScenarioExecutor(kc)
       const validator = new ValidationEngine()
-      const runtimeExecutor = hasRuntime ? new RuntimeScenarioExecutor(kc, buildAlertSource(opts.alertSource)) : null
+      const runtimeExecutor = hasRuntime ? new RuntimeScenarioExecutor(kc, buildAlertSource(opts.alertSource, kc)) : null
       const runtimeValidator = new RuntimeValidationEngine()
       const cleanup = new CleanupManager(kc)
       const builder = new EvidenceBuilder({
@@ -303,14 +303,6 @@ export function registerRunCommand(verify: Command): void {
     })
 }
 
-/** Build the unified alert source from the --alert-source flag value */
-function buildAlertSource(tool: string) {
-  switch (tool) {
-    case 'none':
-    default:
-      return new NullAlertSource()
-  }
-}
 
 /** Populate a fresh registry with all built-in packs and scenarios */
 function buildRegistry(): { preventive: ScenarioRegistry; runtime: Map<string, RuntimeScenarioDefinition>; runtimePacks: Map<string, string[]> } {

@@ -146,11 +146,11 @@ The reconnaissance layer surveys a cluster's security posture before any test wo
 
 ### OpenClaw skills
 
-- [x] `skills/openclaw-pentest/SKILL.md` — recon-first pentest workflow (8 steps)
-- [x] `skills/openclaw-pentest/references/cli-reference.md` — full recon command reference, `ReconReport` schema, tool data shapes, `--manifest` execution path
-- [x] `skills/openclaw-pentest/references/goal-elaboration.md` — per-tool interpretation tables, custom manifest strategy, 3-layer correlation
+- [x] `skills/openclaw-pentest/SKILL.md` — recon-first pentest workflow (7 steps); execution primitives are the sole execution mechanism — scenario packs removed
+- [x] `skills/openclaw-pentest/references/cli-reference.md` — four execution primitives (`exec`, `network`, `identity`, `detect`), alert source selection, JSON evidence schema with alert object
+- [x] `skills/openclaw-pentest/references/goal-elaboration.md` — vulnerability coverage taxonomy (9 categories), per-tool recon interpretation, execution primitive decision table, high-value exec commands and network targets, correlation table
 - [x] `skills/chaosclaw/SKILL.md` — `recon init` added to verify workflow
-- [x] `skills/chaosclaw/references/cli-reference.md` — recon commands and finding severity table added
+- [x] `skills/chaosclaw/references/cli-reference.md` — recon commands, finding severity table, all five verify commands
 
 ---
 
@@ -158,18 +158,27 @@ The reconnaissance layer surveys a cluster's security posture before any test wo
 
 > **Goal:** OpenClaw can drive free-form pentesting via manifest submission, with enough scenario coverage and runtime adapters to produce meaningful security assessments.
 
+### Execution layer primitives
+
+- [x] `chaosclaw verify exec` — submit pod, exec command, capture exit code + stdout + stderr, optional alert source
+- [x] `chaosclaw verify network` — submit pod, probe target (http/https/tcp), record reachability + response time, optional alert source
+- [x] `chaosclaw verify identity` — RBAC capability test via SubjectAccessReview
+- [x] `chaosclaw verify detect` — submit pod, exec threat command, poll runtime tool for alert
+- [x] `src/core/pod-runner.ts` — shared pod lifecycle utilities (submit, wait, exec-capturing)
+- [x] `src/core/alert-sources/index.ts` — `buildAlertSource` factory
+
+### Runtime alert source adapters
+
+- [x] `RuntimeAlertSource` adapter: Falco (pod log polling, JSON output)
+- [x] `RuntimeAlertSource` adapter: Tetragon (export-stdout sidecar log polling)
+- [x] `RuntimeAlertSource` adapter: KubeArmor (pod log polling, MatchedPolicy events)
+- [ ] Runtime preflight check: auto-detect which runtime agent is present and configure alert source accordingly
+
 ### Scenario coverage
 
 - [ ] `deny-required-labels` — label enforcement scenario (closes #2)
 - [ ] Additional runtime scenarios (exec-based attack surface coverage)
 - [ ] Traceability labels on all test resources — `app.kubernetes.io/managed-by`, `chaosclaw/run-id`, `chaosclaw/scenario-id` (closes #3)
-
-### Runtime alert source adapters
-
-- [ ] `RuntimeAlertSource` adapter: Falco (HTTP/gRPC)
-- [ ] `RuntimeAlertSource` adapter: Tetragon (gRPC)
-- [ ] `RuntimeAlertSource` adapter: KubeArmor (gRPC)
-- [ ] Runtime preflight check: auto-detect which runtime agent is present and configure alert source accordingly
 
 ### Preflight improvements
 

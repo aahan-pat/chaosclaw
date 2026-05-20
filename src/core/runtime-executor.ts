@@ -58,6 +58,12 @@ export interface RuntimeAlert {
   triggeredAt: string
   /** Raw alert body preserved for the evidence artifact */
   raw: string
+  /**
+   * Whether the runtime tool blocked the action at the kernel level.
+   * 'blocked' maps to action_blocked; 'detected' (default) maps to alert_fired.
+   * Only enforcement-capable tools (KubeArmor, Tetragon) can emit 'blocked'.
+   */
+  action?: 'detected' | 'blocked'
 }
 
 /**
@@ -361,6 +367,7 @@ export class RuntimeScenarioExecutor {
     _expectedOutcomeType: string,
   ): RuntimeObservedOutcome {
     if (alert === null) return 'no_alert'
+    if (alert.action === 'blocked') return 'action_blocked'
     return 'alert_fired'
   }
 
