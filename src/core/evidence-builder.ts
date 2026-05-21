@@ -2,7 +2,8 @@
 // The artifact is the primary audit output — it can be written to disk as JSON for
 // integration with CI pipelines or compliance tooling.
 import { randomUUID } from 'node:crypto'
-import { writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { dirname } from 'node:path'
 import type { ScenarioResult, RunEvidence, RunSummary } from '../types/evidence.js'
 
 /** Pinned at build time so evidence artifacts are self-describing */
@@ -62,6 +63,7 @@ export class EvidenceBuilder {
 
   /** Write the evidence document to a JSON file for use as a CI artefact */
   async writeToFile(filePath: string, evidence: RunEvidence): Promise<void> {
+    await mkdir(dirname(filePath), { recursive: true })
     await writeFile(filePath, JSON.stringify(evidence, null, 2), 'utf-8')
   }
 
