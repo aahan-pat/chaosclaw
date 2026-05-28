@@ -397,29 +397,16 @@ The recon layer surveys the cluster's security posture before any test workloads
 
 OpenClaw is the optional orchestration and intelligence layer. It runs recon, interprets the findings, decides what to test, generates manifests and commands dynamically, and submits them to ChaosClaw for safe execution. ChaosClaw owns correctness and safety; OpenClaw owns what gets tested and what the results mean.
 
-```
-+--------------------------------------------------------------+
-|                   ChaosClaw Product Layer                    |
-|--------------------------------------------------------------|
-| CLI UX | Report formatting | Packaging | Scenario packs      |
-+----------------------------+---------------------------------+
-                             |
-+----------------------------v---------------------------------+
-|               ChaosClaw Verification Core                    |
-|--------------------------------------------------------------|
-| Scenario Registry | Preflight Checks | Executor              |
-| Validation Engine | Evidence Builder | Cleanup Manager       |
-| Runtime Executor  | Alert Sources    | Runtime Validator     |
-+----------------------------+---------------------------------+
-                             |
-+----------------------------v---------------------------------+
-|                    Recon Layer (read-only)                   |
-|--------------------------------------------------------------|
-| Webhooks | Policies | PSA | RBAC | Nodes | NetworkPolicies   |
-| RuntimeAgents | Topology (graphnetes) | ReconReport          |
-+----------------------------+---------------------------------+
-                             |
-                     Kubernetes API / kubeconfig
+```mermaid
+flowchart TD
+    A["**ChaosClaw Product Layer**\nCLI UX · Report Formatting · Packaging · Scenario Packs"]
+    B["**ChaosClaw Verification Core**\nScenario Registry · Preflight Checks · Executor\nValidation Engine · Evidence Builder · Cleanup Manager\nRuntime Executor · Alert Sources · Runtime Validator"]
+    C["**Recon Layer** *(read-only)*\nWebhooks · Policies · PSA · RBAC · Nodes · NetworkPolicies\nRuntimeAgents · Topology (graphnetes) · ReconReport"]
+    D[("Kubernetes API / kubeconfig")]
+
+    A --> B
+    B --> C
+    C --> D
 ```
 
 ## Docs
