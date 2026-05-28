@@ -238,7 +238,7 @@ export class RuntimeScenarioExecutor {
     }
 
     return {
-      observedOutcome: this.resolveOutcome(alert, scenario.expectedOutcome.type),
+      observedOutcome: this.resolveOutcome(alert),
       alertDetail: alert ?? undefined,
       rawResponse: execError
         ? JSON.stringify({ status: 'created', name: podName, execError })
@@ -364,7 +364,6 @@ export class RuntimeScenarioExecutor {
    */
   private resolveOutcome(
     alert: RuntimeAlert | null,
-    _expectedOutcomeType: string,
   ): RuntimeObservedOutcome {
     if (alert === null) return 'no_alert'
     if (alert.action === 'blocked') return 'action_blocked'

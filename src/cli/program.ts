@@ -19,6 +19,7 @@ import { registerNodesCommand } from './recon/nodes.js'
 import { registerNetworkPoliciesCommand } from './recon/network-policies.js'
 import { registerRuntimeAgentsCommand } from './recon/runtime-agents.js'
 import { registerAllCommand } from './recon/all.js'
+import { registerTopologyCommand } from './recon/topology.js'
 
 /**
  * Constructs and returns the fully configured commander program.
@@ -60,7 +61,7 @@ export function buildProgram(): Command {
   registerListCommand(scenariosCmd)
   registerShowCommand(scenariosCmd)
 
-  // chaosclaw recon init | webhooks | policies | psa | rbac | nodes | network-policies | runtime-agents | all
+  // chaosclaw recon init | webhooks | policies | psa | rbac | nodes | network-policies | runtime-agents | topology | all
   const reconCmd = program
     .command('recon')
     .description('Survey cluster security posture before pentest execution')
@@ -73,6 +74,7 @@ export function buildProgram(): Command {
   registerNodesCommand(reconCmd)
   registerNetworkPoliciesCommand(reconCmd)
   registerRuntimeAgentsCommand(reconCmd)
+  registerTopologyCommand(reconCmd)
   registerAllCommand(reconCmd)
 
   return program

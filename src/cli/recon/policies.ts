@@ -61,11 +61,7 @@ export function registerPoliciesCommand(recon: Command): void {
         section(`${detectedEngine === 'kyverno' ? 'ClusterPolicies' : 'ConstraintTemplates'} (${policies.length})`)
         for (const p of policies) {
           const action = p.validationFailureAction
-          const mark = action?.toLowerCase() === 'audit'
-            ? chalk.yellow('  ← audit only')
-            : action
-              ? ''
-              : ''
+          const mark = action?.toLowerCase() === 'audit' ? chalk.yellow('  ← audit only') : ''
           const actionDisplay = action ? `${action.padEnd(12)}` : '—'.padEnd(12)
           indent(`${p.name.padEnd(40)} ${actionDisplay}${mark}`)
         }

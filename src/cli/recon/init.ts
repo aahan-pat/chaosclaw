@@ -4,8 +4,7 @@ import * as k8s from '@kubernetes/client-node'
 import chalk from 'chalk'
 import { ReconInitEngine } from '../../core/recon/init.js'
 import { header, field, section, indent, blank } from '../output.js'
-
-export const DEFAULT_RECON_NAMESPACE = 'chaosclaw'
+import { DEFAULT_RECON_NAMESPACE } from './shared.js'
 
 /**
  * Attaches the "init" subcommand to the recon command group.

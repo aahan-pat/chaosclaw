@@ -9,6 +9,7 @@ import { RbacReconEngine } from '../../core/recon/rbac.js'
 import { NodeReconEngine } from '../../core/recon/nodes.js'
 import { NetworkPolicyReconEngine } from '../../core/recon/network-policies.js'
 import { RuntimeAgentReconEngine } from '../../core/recon/runtime-agents.js'
+import { TopologyReconEngine } from '../../core/recon/topology.js'
 import type { ReconFinding, ReconFindingSeverity, ReconReport, ReconToolResult } from '../../types/recon.js'
 import { header, field, section, indent, blank, reconFindingLabel } from '../output.js'
 import { buildKubeConfig, DEFAULT_RECON_NAMESPACE, writeJsonToFile } from './shared.js'
@@ -73,6 +74,7 @@ export function registerAllCommand(recon: Command): void {
         ['nodes', new NodeReconEngine(kc)],
         ['network-policies', new NetworkPolicyReconEngine(kc)],
         ['runtime-agents', new RuntimeAgentReconEngine(kc)],
+        ['topology', new TopologyReconEngine()],
       ]
 
       const toolResults: ReconToolResult[] = []

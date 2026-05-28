@@ -20,6 +20,9 @@ Results are one of four outcomes: `PASS`, `FAIL`, `ERROR`, or `SKIPPED`. Every r
 chaosclaw recon init
 chaosclaw recon all --output recon.json
 
+# Map cluster resource topology (requires graphnetes on PATH)
+chaosclaw recon topology --namespace default
+
 # Check that the cluster is ready for verification
 chaosclaw verify preflight
 
@@ -52,6 +55,7 @@ chaosclaw recon rbac               # cluster-admin bindings, high-privilege serv
 chaosclaw recon nodes              # kernel versions, container runtimes, AppArmor presence
 chaosclaw recon network-policies   # per-namespace network segmentation gaps
 chaosclaw recon runtime-agents     # detect Falco, KubeArmor, Tetragon, Tracee
+chaosclaw recon topology           # resource topology graph: ingress paths, secret mounts, SA bindings (requires graphnetes)
 ```
 
 ### Cluster readiness
@@ -153,6 +157,7 @@ chaosclaw help
 | `--can <verb>` | RBAC verb to test (`verify identity`) |
 | `--resource <resource>` | Kubernetes resource to test (`verify identity`) |
 | `--resource-namespace <ns>` | Namespace for the permission check |
+| `--graph <path>` | Path to an existing `graphnetes-out/graph.json` — skips the build step (`recon topology`) |
 | `--alert-source <tool>` | Runtime alert source: `none`, `falco`, `tetragon`, `kubearmor` |
 | `--observation-window <s>` | Seconds to poll for a runtime alert (default: 10) |
 | `--pod-timeout <s>` | Max wait for pod to reach Running (default: 60) |
@@ -202,6 +207,7 @@ Namespace: chaosclaw
   [OK]    nodes        4 nodes, containerd 1.7, AppArmor enabled
   [HIGH]  network-policies  12 namespaces have no network policy
   [OK]    runtime-agents    Falco detected (DaemonSet running)
+  [WARN]  topology          3 Pod→Secret mounts detected
 
 Severity: [HIGH]
 ReconReport written to: recon.json
@@ -410,7 +416,7 @@ OpenClaw is the optional orchestration and intelligence layer. It runs recon, in
 |                    Recon Layer (read-only)                   |
 |--------------------------------------------------------------|
 | Webhooks | Policies | PSA | RBAC | Nodes | NetworkPolicies   |
-| RuntimeAgents | ReconInit | ReconReport                      |
+| RuntimeAgents | Topology (graphnetes) | ReconReport          |
 +----------------------------+---------------------------------+
                              |
                      Kubernetes API / kubeconfig

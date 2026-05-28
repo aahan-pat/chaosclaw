@@ -141,9 +141,12 @@ chaosclaw recon rbac              --context <ctx> [--include-system]
 chaosclaw recon nodes             --context <ctx>
 chaosclaw recon network-policies  --context <ctx>
 chaosclaw recon runtime-agents    --context <ctx>
+chaosclaw recon topology          --context <ctx> --namespace <ns> [--graph <path>]
 ```
 
 All support `--output <file>` and `--format json`.
+
+`topology` requires [graphnetes](https://github.com/aahan-pat/graphnetes) on PATH. If graphnetes is not installed the tool returns a SKIP finding and the survey continues. Use `--graph <path>` to supply a pre-built `graph.json` instead of invoking `graphnetes build`.
 
 ### Recon finding severities
 

@@ -40,6 +40,17 @@ chaosclaw recon init --context <context-name>
 ```
 See `references/cli-reference.md` §Recon commands. Skip if the user confirms it already exists.
 
+**Step 2.5 — Run topology recon (if graphnetes is installed).**
+Check whether graphnetes is on PATH:
+```bash
+where graphnetes
+```
+If found (regardless of exit code from `graphnetes version`), run topology for the `chaosclaw` namespace before executing scenarios:
+```bash
+chaosclaw recon topology --context <context-name> --namespace chaosclaw --output topology.json
+```
+Read the output. Use `secretMounts`, `ingressPaths`, and `serviceAccountBindings` to surface high-value targets and inform which scenarios or `--manifest` test cases to prioritize.
+
 **Step 3 — Run preflight.**
 See `references/cli-reference.md` §Preflight for the command and how to handle each outcome.
 
