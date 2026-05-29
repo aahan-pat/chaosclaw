@@ -412,6 +412,7 @@ flowchart TD
 ## Docs
 
 - [Scenarios](docs/scenarios.md) — full scenario library with control objectives, FAIL explanations, and remediation
+- [Case Study: Kubernetes Goat](docs/case-study-kubernetes-goat.md) — end-to-end run against a deliberately vulnerable cluster
 - [Architecture](docs/architecture.md) — system design, multi-cluster model, and roadmap
 - [CLI Design](docs/design.md) — UX principles, workflows, and command model
 - [Screen Library](docs/cli-design.md) — canonical terminal output examples
