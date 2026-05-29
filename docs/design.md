@@ -672,42 +672,599 @@ This product will be judged heavily on trust.
 
 ---
 
-## 17. Immediate Next Design Artifacts
+## 17. Screen Library
 
-After this spec, the next design outputs should be:
+This section is the canonical reference for ChaosClaw CLI terminal output. Every screen listed here should be implemented exactly as shown for MVP.
 
-### A. Command reference
+### Output conventions
 
-A full command/flag table with examples.
+**Status labels** — use `[PASS]`, `[FAIL]`, `[ERROR]`, `[SKIPPED]`, `[WARN]`. With color: green for PASS, red for FAIL/ERROR, yellow for SKIPPED/WARN. Output must remain clean without color.
 
-### B. Terminal screen library
+**Terminology** — use exactly these terms, never alternatives like "target env", "profile", or "workspace":
 
-Canonical output examples for:
+| Term | Do not substitute |
+| ---- | ----------------- |
+| Cluster Context | target env, environment |
+| Scenario Pack | profile, suite |
+| Test Namespace | workspace, test env |
+| Cleanup | teardown |
+| Summary | results |
+| Artifacts | report bundle |
+| Next | instructions |
 
-* success
-* warning
-* fail
-* error
-* skipped
-* cleanup issue
+**Section order within a screen:**
+1. command purpose header
+2. target context
+3. safety context
+4. progress / results
+5. summary
+6. details
+7. artifacts
+8. next steps
+9. exit code where helpful
 
-### C. JSON schema
+---
 
-Formal schema for result artifacts.
+### Screen: `verify preflight` — success
 
-### D. Scenario detail templates
+```text
+$ chaosclaw verify preflight --context prod-us-east
 
-Standard structure for built-in scenarios.
+ChaosClaw Preflight
+Cluster Context: prod-us-east
+Test Namespace: chaosclaw-tests
 
-### E. Design partner walkthrough
+Checks
+  [PASS] Cluster reachable
+  [PASS] Authentication valid
+  [PASS] Namespace creation allowed
+  [PASS] Pod create/delete permissions available
+  [PASS] Cleanup permissions available
+  [PASS] Baseline preventive scenarios supported
 
-A step-by-step scripted demo flow:
+Result
+  Preflight passed
 
-* preflight
-* run baseline pack
-* inspect failure
-* rerun fixed scenario
-
+Next
+  chaosclaw verify run --pack preventive-baseline --context prod-us-east
 ```
+
+*Short and confidence-building. The next action is explicit.*
+
+---
+
+### Screen: `verify preflight` — with warnings
+
+```text
+$ chaosclaw verify preflight --context prod-us-east
+
+ChaosClaw Preflight
+Cluster Context: prod-us-east
+Test Namespace: chaosclaw-tests
+
+Checks
+  [PASS] Cluster reachable
+  [PASS] Authentication valid
+  [PASS] Namespace creation allowed
+  [PASS] Pod create/delete permissions available
+  [PASS] Cleanup permissions available
+  [WARN] Some scenarios may be skipped because no hostPath policy was detected
+
+Result
+  Preflight passed with warnings
+
+Next
+  chaosclaw verify run --pack preventive-baseline --context prod-us-east
+```
+
+*Warnings should not look like hard errors. A warning describes reduced coverage, not generic uncertainty.*
+
+---
+
+### Screen: `verify preflight` — hard failure
+
+```text
+$ chaosclaw verify preflight --context prod-us-east
+
+ChaosClaw Preflight
+Cluster Context: prod-us-east
+Test Namespace: chaosclaw-tests
+
+Checks
+  [PASS] Cluster reachable
+  [PASS] Authentication valid
+  [FAIL] Namespace creation not allowed
+
+Result
+  Preflight failed
+
+Reason
+  Current credentials cannot create namespaces in this cluster context
+
+Next
+  - Use a context with namespace create/delete permissions
+  - Or specify an approved existing test namespace with --namespace
+  - Re-run: chaosclaw verify preflight --context prod-us-east --namespace <name>
+```
+
+*Failure reason must be specific. Next steps must be practical. No stack traces.*
+
+---
+
+### Screen: `scenarios list`
+
+```text
+$ chaosclaw scenarios list
+
+Available Scenario Packs
+  preventive-baseline   6 scenarios   Core preventive guardrail checks
+
+Available Scenarios
+  deny-privileged-container      Prevent privileged workloads
+  deny-unapproved-registry       Restrict disallowed image registries
+  deny-hostpath                  Prevent hostPath volume usage
+  deny-forbidden-capabilities    Restrict dangerous Linux capabilities
+  deny-latest-tag                Prevent mutable image tags
+  deny-privilege-escalation      Prevent container privilege escalation
+```
+
+*Keep list compact. Show one-line purpose, not deep detail.*
+
+---
+
+### Screen: `scenarios show`
+
+```text
+$ chaosclaw scenarios show deny-hostpath
+
+Scenario: deny-hostpath
+Version: 1
+Category: preventive
+Control Objective: Prevent hostPath volume usage
+Expected Outcome: admission rejected
+Risk Level: low
+
+Description
+  Attempts to create a pod using a hostPath volume. The cluster should reject it.
+
+Prerequisites
+  - pod create permissions
+  - admission policy covering hostPath usage
+
+Pack Membership
+  - preventive-baseline
+```
+
+*Reads like a compact fact sheet. No manifest dumps in default mode.*
+
+---
+
+### Screen: `verify run` — all pass
+
+```text
+$ chaosclaw verify run --pack preventive-baseline --context prod-us-east --output result.json
+
+ChaosClaw Verification Run
+Cluster Context: prod-us-east
+Scenario Pack: preventive-baseline
+Scenarios: 5
+Test Namespace: chaosclaw-tests
+Cleanup: always
+
+Running Scenarios
+  [PASS] deny-privileged-container
+  [PASS] deny-unapproved-registry
+  [PASS] deny-hostpath
+  [PASS] deny-forbidden-capabilities
+  [PASS] deny-latest-tag
+
+Summary
+  Pass:    5
+  Fail:    0
+  Error:   0
+  Skipped: 0
+
+Artifacts
+  JSON report written to: result.json
+```
+
+*The core "success" screen for demos. No extra noise. No exit code needed on full success.*
+
+---
+
+### Screen: `verify run` — with failed scenario
+
+```text
+$ chaosclaw verify run --pack preventive-baseline --context prod-us-east --output result.json
+
+ChaosClaw Verification Run
+Cluster Context: prod-us-east
+Scenario Pack: preventive-baseline
+Scenarios: 5
+Test Namespace: chaosclaw-tests
+Cleanup: always
+
+Running Scenarios
+  [PASS] deny-privileged-container
+  [PASS] deny-unapproved-registry
+  [FAIL] deny-hostpath
+  [PASS] deny-forbidden-capabilities
+  [PASS] deny-latest-tag
+
+Summary
+  Pass:    4
+  Fail:    1
+  Error:   0
+  Skipped: 0
+
+Failed Scenarios
+
+  deny-hostpath
+    Expected: admission rejected
+    Observed: workload admitted
+    Likely issue: hostPath restriction policy not enforced for this workload type
+
+Artifacts
+  JSON report written to: result.json
+
+Exit Code
+  1
+```
+
+*Failed scenarios expand automatically. Likely issue is a short hint, not a long diagnosis. This is the most important screen in the MVP.*
+
+---
+
+### Screen: `verify run` — with skipped scenarios
+
+```text
+$ chaosclaw verify run --pack preventive-baseline --context staging --output result.json
+
+ChaosClaw Verification Run
+Cluster Context: staging
+Scenario Pack: preventive-baseline
+Scenarios: 5
+Test Namespace: chaosclaw-tests
+Cleanup: always
+
+Running Scenarios
+  [PASS] deny-privileged-container
+  [PASS] deny-unapproved-registry
+  [SKIPPED] deny-hostpath
+  [PASS] deny-forbidden-capabilities
+  [PASS] deny-latest-tag
+
+Summary
+  Pass:    4
+  Fail:    0
+  Error:   0
+  Skipped: 1
+
+Skipped Scenarios
+
+  deny-hostpath
+    Reason: no applicable hostPath admission policy detected
+
+Artifacts
+  JSON report written to: result.json
+```
+
+*SKIPPED is not PASS. Skipped scenarios always include a reason — this matters for trust and auditability.*
+
+---
+
+### Screen: `verify run` — execution error
+
+```text
+$ chaosclaw verify run --pack preventive-baseline --context prod-us-east
+
+ChaosClaw Verification Run
+Cluster Context: prod-us-east
+Scenario Pack: preventive-baseline
+Scenarios: 5
+Test Namespace: chaosclaw-tests
+Cleanup: always
+
+Running Scenarios
+  [PASS] deny-privileged-container
+  [ERROR] deny-unapproved-registry
+
+Summary
+  Pass:    1
+  Fail:    0
+  Error:   1
+  Skipped: 0
+
+Errors
+
+  deny-unapproved-registry
+    Reason: request timed out while waiting for Kubernetes API response
+    Action: rerun the scenario or verify API server responsiveness
+
+Next
+  chaosclaw verify run --scenario deny-unapproved-registry --context prod-us-east
+```
+
+*Errors feel operational, not semantic. Give the user one concrete next action.*
+
+---
+
+### Screen: `verify run` — cleanup warning
+
+```text
+$ chaosclaw verify run --scenario deny-hostpath --context prod-us-east
+
+ChaosClaw Verification Run
+Cluster Context: prod-us-east
+Scenario: deny-hostpath
+Test Namespace: chaosclaw-tests
+Cleanup: always
+
+Running Scenario
+  [PASS] deny-hostpath
+
+Summary
+  Pass:    1
+  Fail:    0
+  Error:   0
+  Skipped: 0
+
+[WARN] Cleanup incomplete
+
+Details
+  Pod chaosclaw-test-abc123 could not be deleted automatically
+
+Next
+  kubectl delete pod chaosclaw-test-abc123 -n chaosclaw-tests
+```
+
+*Cleanup warnings must be visible. Trust depends on them.*
+
+---
+
+### Screen: `verify run` — single scenario rerun
+
+```text
+$ chaosclaw verify run --scenario deny-hostpath --context prod-us-east
+
+ChaosClaw Verification Run
+Cluster Context: prod-us-east
+Scenario: deny-hostpath
+Test Namespace: chaosclaw-tests
+Cleanup: always
+
+Running Scenario
+  [PASS] deny-hostpath
+
+Summary
+  Pass:    1
+  Fail:    0
+  Error:   0
+  Skipped: 0
+```
+
+*Rerun screens are lightweight. Users should not need to scroll through unnecessary context.*
+
+---
+
+### Screen: `verify run` — `--fail-fast`
+
+```text
+$ chaosclaw verify run --pack preventive-baseline --context prod-us-east --fail-fast
+
+ChaosClaw Verification Run
+Cluster Context: prod-us-east
+Scenario Pack: preventive-baseline
+Scenarios: 5
+Test Namespace: chaosclaw-tests
+Cleanup: always
+Mode: fail-fast
+
+Running Scenarios
+  [PASS] deny-privileged-container
+  [FAIL] deny-unapproved-registry
+
+Summary
+  Pass:    1
+  Fail:    1
+  Error:   0
+  Skipped: 0
+  Not Run: 3
+
+Stopped Early
+  Execution stopped after first failed scenario because --fail-fast was enabled
+```
+
+*"Not Run" count matters. Early stop must be explicit.*
+
+---
+
+### Screen: invalid command usage
+
+```text
+$ chaosclaw verify run
+
+Error
+  Missing required target: specify exactly one of --pack, --scenario, or --manifest
+
+Examples
+  chaosclaw verify run --pack preventive-baseline
+  chaosclaw verify run --scenario deny-hostpath
+  chaosclaw verify run --manifest ./my-pod.yaml --expect rejected
+
+Help
+  chaosclaw verify run --help
+```
+
+*Usage messages should teach, not just complain.*
+
+---
+
+### Screen: wrong or missing cluster context
+
+```text
+$ chaosclaw verify run --pack preventive-baseline --context prod-eu
+
+Error
+  Kubernetes context not found: prod-eu
+
+Next
+  - Run kubectl config get-contexts
+  - Choose a valid context
+  - Re-run with --context <name>
+```
+
+*Cluster identity is safety-critical. Keep this message sharp and specific.*
+
+---
+
+### Screen: namespace override acknowledged
+
+```text
+$ chaosclaw verify run --pack preventive-baseline --context prod-us-east --namespace security-test-ns
+
+ChaosClaw Verification Run
+Cluster Context: prod-us-east
+Scenario Pack: preventive-baseline
+Scenarios: 5
+Test Namespace: security-test-ns
+Cleanup: always
+
+Running Scenarios
+  [PASS] deny-privileged-container
+  [PASS] deny-unapproved-registry
+  [PASS] deny-hostpath
+  [PASS] deny-forbidden-capabilities
+  [PASS] deny-latest-tag
+
+Summary
+  Pass:    5
+  Fail:    0
+  Error:   0
+  Skipped: 0
+```
+
+*Namespace visibility matters — it is part of the trust model.*
+
+---
+
+### Screen: verbose mode
+
+```text
+$ chaosclaw verify run --scenario deny-hostpath --context prod-us-east --verbose
+
+ChaosClaw Verification Run
+Cluster Context: prod-us-east
+Scenario: deny-hostpath
+Test Namespace: chaosclaw-tests
+Cleanup: always
+
+Scenario Details
+  Description: Attempts to create a pod using a hostPath volume
+  Expected Outcome: admission rejected
+  Manifest Template: pod-hostpath.yaml
+
+Execution
+  Creating test namespace if needed
+  Applying manifest
+  Kubernetes API response: forbidden
+  Admission reason: hostPath volumes are not allowed by policy
+
+Running Scenario
+  [PASS] deny-hostpath
+
+Summary
+  Pass:    1
+  Fail:    0
+  Error:   0
+  Skipped: 0
+```
+
+*Verbose mode adds value, not noise. Good for debugging and design-partner sessions.*
+
+---
+
+### Screen: JSON output mode
+
+```text
+$ chaosclaw verify run --pack preventive-baseline --format json
+
+{
+  "run_id": "7b4f...",
+  "cluster_context": "prod-us-east",
+  "pack_id": "preventive-baseline",
+  "started_at": "2026-03-15T10:15:00Z",
+  "ended_at": "2026-03-15T10:16:10Z",
+  "summary": {
+    "pass": 4,
+    "fail": 1,
+    "error": 0,
+    "skipped": 0
+  },
+  "results": [
+    ...
+  ]
+}
+```
+
+*This mode is useful for scripts and OpenClaw skill invocation. Human-readable mode remains the default.*
+
+---
+
+### Screen: command help
+
+```text
+$ chaosclaw verify run --help
+
+Usage
+  chaosclaw verify run (--pack <id> | --scenario <id> | --manifest <path> --expect <outcome>) [flags]
+
+Flags
+  --pack <id>            scenario pack to run
+  --scenario <id>        single scenario to run
+  --manifest <path>      path to a Pod manifest file (YAML or JSON) to test directly
+  --expect <outcome>     expected admission outcome when using --manifest: rejected or allowed
+  --context <name>       Kubernetes context to use
+  --kubeconfig <path>    kubeconfig path override
+  --namespace <name>     test namespace override
+  --output <path>        write JSON report to file
+  --format <mode>        output mode: table, json
+  --timeout <ms>         per-scenario timeout in milliseconds
+  --fail-fast            stop after first failure
+  --cleanup <mode>       cleanup mode: always, on-success
+  --verbose              include extra diagnostics
+
+Examples
+  chaosclaw verify run --pack preventive-baseline
+  chaosclaw verify run --scenario deny-hostpath --context prod-us-east
+  chaosclaw verify run --manifest ./my-pod.yaml --expect rejected
+```
+
+*Help text must be compact enough to scan. Examples matter more than long prose.*
+
+---
+
+### Screen inventory
+
+These are the canonical screens required for MVP:
+
+1. preflight — success
+2. preflight — with warnings
+3. preflight — hard failure
+4. scenarios list
+5. scenarios show
+6. verify run — all pass
+7. verify run — with failed scenario
+8. verify run — with skipped scenarios
+9. verify run — execution error
+10. verify run — cleanup warning
+11. verify run — single scenario rerun
+12. verify run — `--fail-fast`
+13. invalid command usage
+14. wrong or missing cluster context
+15. namespace override acknowledged
+16. verbose mode
+17. JSON output mode
+18. command help
 
 
