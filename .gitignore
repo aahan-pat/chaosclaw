@@ -15,3 +15,6 @@ coverage/
 .claude/
 graphify-out/
 CLAUDE.md
+
+# Probe files
+probe*.yaml
