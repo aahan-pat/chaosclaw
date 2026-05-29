@@ -17,4 +17,4 @@ graphify-out/
 CLAUDE.md
 
 # Probe files
-probe*.yaml
+probe/
