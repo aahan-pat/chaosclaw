@@ -1,3 +1,5 @@
+// Surveys NetworkPolicy coverage across user namespaces, identifying those with no policies
+// (unrestricted pod traffic) or policies that only cover ingress but not egress.
 import * as k8s from '@kubernetes/client-node'
 import type { ReconFinding, ReconOptions, ReconToolResult } from '../../types/recon.js'
 
@@ -18,16 +20,19 @@ export class NetworkPolicyReconEngine {
     const coreApi = this.kc.makeApiClient(k8s.CoreV1Api)
 
     try {
+      // Fetch all NetworkPolicies and the namespace list in parallel to reduce latency.
       const [policiesRes, namespacesRes] = await Promise.all([
         networkingApi.listNetworkPolicyForAllNamespaces(),
         coreApi.listNamespace(),
       ])
 
+      // Build the list of user-managed namespaces, excluding known system namespaces.
       const userNamespaces = namespacesRes.items
         .map(n => n.metadata?.name ?? '')
         .filter(n => n && !SYSTEM_NAMESPACES.has(n))
 
-      // Group policies by namespace
+      // Group policies by namespace using a pre-seeded map so namespaces with zero policies
+      // are still represented in the output rather than silently omitted.
       const byNamespace = new Map<string, k8s.V1NetworkPolicy[]>()
       for (const ns of userNamespaces) byNamespace.set(ns, [])
       for (const policy of policiesRes.items) {
@@ -40,6 +45,7 @@ export class NetworkPolicyReconEngine {
       const namespaces: NamespaceNetworkStatus[] = [...byNamespace.entries()].map(([ns, policies]) => ({
         namespace: ns,
         policyCount: policies.length,
+        // A policy with no policyTypes defaults to Ingress, so any policy counts as ingress coverage.
         hasIngress: policies.some(p => {
           const types = p.spec?.policyTypes ?? []
           return types.includes('Ingress') || types.length === 0
@@ -75,11 +81,14 @@ export class NetworkPolicyReconEngine {
   private analyze(namespaces: NamespaceNetworkStatus[]): ReconFinding[] {
     const findings: ReconFinding[] = []
 
+    // Namespaces with no policies at all allow unrestricted pod-to-pod traffic.
     const unprotected = namespaces.filter(n => n.policyCount === 0)
+    // Namespaces with policies that cover ingress but not egress allow unconstrained outbound traffic.
     const ingressOnly = namespaces.filter(n => n.policyCount > 0 && !n.hasEgress)
 
     if (unprotected.length > 0) {
       const names = unprotected.map(n => n.namespace).join(', ')
+      // Raise to HIGH when the 'default' namespace is unprotected, since it often hosts user workloads.
       findings.push({
         severity: unprotected.some(n => n.namespace === 'default') ? 'HIGH' : 'WARN',
         title: `${unprotected.length} namespace(s) have no NetworkPolicies`,
@@ -95,6 +104,7 @@ export class NetworkPolicyReconEngine {
       })
     }
 
+    // Full coverage — emit INFO to positively confirm the secure posture.
     if (unprotected.length === 0 && ingressOnly.length === 0 && namespaces.length > 0) {
       findings.push({
         severity: 'INFO',

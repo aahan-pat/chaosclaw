@@ -8,6 +8,7 @@ import { scenarios as runtimeScenarios } from '../../scenarios/runtime-baseline/
 import type { RuntimeScenarioDefinition } from '../../types/runtime-scenario.js'
 import { header, field, section, indent, blank } from '../output.js'
 
+// Check for the execStep field to differentiate runtime from preventive scenario types.
 function isRuntimeScenario(s: unknown): s is RuntimeScenarioDefinition {
   return typeof s === 'object' && s !== null && 'execStep' in s
 }
@@ -21,12 +22,15 @@ export function registerShowCommand(scenariosCmd: Command): void {
     .command('show <id>')
     .description('Show details for a specific scenario')
     .action((id: string) => {
+      // Populate a fresh registry with all built-in preventive scenarios.
       const registry = new ScenarioRegistry()
       registry.registerPack(pack)
       for (const s of scenarios) registry.register(s)
 
+      // Build a Map for runtime scenarios so they can be looked up by ID.
       const runtimeById = new Map<string, RuntimeScenarioDefinition>(runtimeScenarios.map(s => [s.id, s]))
 
+      // Check the preventive registry first; fall back to the runtime map.
       const scenario = registry.getScenario(id) ?? runtimeById.get(id)
       if (!scenario) {
         console.error(`\nError\n  Scenario not found: "${id}"`)
@@ -38,6 +42,7 @@ export function registerShowCommand(scenariosCmd: Command): void {
       field('Version', String(scenario.version))
       field('Category', scenario.category)
       field('Control Objective', scenario.controlObjective)
+      // Replace underscores with spaces to produce a human-readable expected outcome string.
       field('Expected Outcome', scenario.expectedOutcome.type.replace('_', ' '))
       field('Risk Level', scenario.safety.level)
 
@@ -45,6 +50,7 @@ export function registerShowCommand(scenariosCmd: Command): void {
       indent(scenario.description)
 
       if (isRuntimeScenario(scenario)) {
+        // Show the exec step for runtime scenarios so operators know what threat action will fire.
         section('Exec Step')
         indent(`Container: ${scenario.execStep.container}`)
         indent(`Command:   ${scenario.execStep.command.join(' ')}`)

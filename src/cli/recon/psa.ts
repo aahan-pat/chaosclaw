@@ -41,13 +41,16 @@ export function registerPsaCommand(recon: Command): void {
       }
 
       const namespaces = (result.data as { namespaces?: NamespacePsaStatus[] }).namespaces ?? []
+      // Helper to pad a PSA level string to a fixed column width, replacing missing labels with '—'.
       const col = (s: string | undefined, width = 14) => (s ?? '—').padEnd(width)
 
       section('Namespace PSA Labels')
       blank()
+      // Print a fixed-width header row so columns align with the data rows below.
       indent(`${'Namespace'.padEnd(28)} ${'Enforce'.padEnd(14)} ${'Audit'.padEnd(14)} Warn`)
       indent('─'.repeat(72))
       for (const ns of namespaces) {
+        // Flag non-system namespaces with no labels at all — they are completely unprotected.
         const mark = !ns.enforce && !ns.audit && !ns.warn && !ns.isSystem
           ? chalk.yellow('  ← no labels')
           : ''

@@ -1,3 +1,5 @@
+// Surveys admission webhooks installed on the cluster, identifying failure-open configurations
+// that could allow policy bypasses if the webhook becomes unreachable.
 import * as k8s from '@kubernetes/client-node'
 import type { ReconFinding, ReconOptions, ReconToolResult } from '../../types/recon.js'
 
@@ -16,6 +18,7 @@ export class WebhookReconEngine {
     const admissionApi = this.kc.makeApiClient(k8s.AdmissionregistrationV1Api)
 
     try {
+      // Fetch both webhook types in parallel to reduce total latency.
       const [validatingRes, mutatingRes] = await Promise.all([
         admissionApi.listValidatingWebhookConfiguration(),
         admissionApi.listMutatingWebhookConfiguration(),
@@ -23,6 +26,7 @@ export class WebhookReconEngine {
 
       const webhooks: WebhookInfo[] = []
 
+      // Flatten each WebhookConfiguration (which can contain multiple webhooks) into individual entries.
       for (const config of validatingRes.items) {
         for (const wh of config.webhooks ?? []) {
           webhooks.push({
@@ -54,6 +58,7 @@ export class WebhookReconEngine {
         data: { webhooks },
       }
     } catch (err: unknown) {
+      // 403 means missing RBAC — downgrade to 'skip' so the overall survey can continue.
       if (this.statusCode(err) === 403) {
         return {
           tool: 'webhooks',
@@ -72,6 +77,7 @@ export class WebhookReconEngine {
     }
   }
 
+  // Determine webhook scope by checking whether a namespace selector is present.
   private formatScope(selector?: k8s.V1LabelSelector | null): string {
     if (!selector?.matchExpressions?.length && !selector?.matchLabels) return 'cluster-wide'
     return 'namespace-scoped'
@@ -80,6 +86,7 @@ export class WebhookReconEngine {
   private analyze(webhooks: WebhookInfo[]): ReconFinding[] {
     const findings: ReconFinding[] = []
 
+    // No webhooks at all is a HIGH finding — enforcement relies entirely on PSA.
     if (webhooks.length === 0) {
       findings.push({
         severity: 'HIGH',
@@ -89,6 +96,7 @@ export class WebhookReconEngine {
       return findings
     }
 
+    // Identify webhooks configured with failurePolicy: Ignore, which bypass admission on errors.
     const failOpen = webhooks.filter(w => w.failurePolicy === 'Ignore')
     for (const wh of failOpen) {
       findings.push({
@@ -98,6 +106,7 @@ export class WebhookReconEngine {
       })
     }
 
+    // All webhooks use Fail — this is the secure posture, report as INFO.
     if (failOpen.length === 0) {
       findings.push({
         severity: 'INFO',

@@ -26,14 +26,18 @@ export class FalcoAlertSource extends LogBasedAlertSource {
   protected readonly containerName = 'falco'
 
   protected parseLine(line: string, namespace: string, podNamePrefix: string): RuntimeAlert | null {
+    // Quickly skip non-JSON lines (e.g. startup messages) before paying the parse cost.
     if (!line.startsWith('{')) return null
     try {
       const ev = JSON.parse(line) as FalcoJsonEvent
+      // Discard events missing required fields — they cannot be attributed to a rule or time.
       if (!ev.rule || !ev.time) return null
 
+      // Extract the Kubernetes namespace and pod name from Falco's output_fields map.
       const fields = ev.output_fields ?? {}
       const alertNs = fields['k8s.ns.name'] ?? ''
       const alertPod = fields['k8s.pod.name'] ?? ''
+      // Filter out events not related to the current test pod by checking namespace and name prefix.
       if (alertNs !== namespace || !alertPod.startsWith(podNamePrefix)) return null
 
       return {

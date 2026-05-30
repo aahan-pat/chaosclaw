@@ -1,3 +1,4 @@
+// Scenario: verify that the cluster rejects pods using the mutable ':latest' image tag.
 import type { ScenarioDefinition } from '../../types/scenario.js'
 
 const PACK_ID = 'preventive-baseline'

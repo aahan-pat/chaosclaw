@@ -1,3 +1,4 @@
+// Scenario: verify that the cluster rejects privileged container requests via admission policy.
 import type { ScenarioDefinition } from '../../types/scenario.js'
 
 const PACK_ID = 'preventive-baseline'

@@ -9,10 +9,12 @@ import type { RuntimeAlertSource, RuntimeAlert } from '../runtime-executor.js'
 export class NullAlertSource implements RuntimeAlertSource {
   readonly name = 'none'
 
+  // Always reports itself as available because there is no external dependency to check.
   async isAvailable(): Promise<boolean> {
     return true
   }
 
+  // Returns null unconditionally to simulate a cluster with no runtime detection tool installed.
   async pollForAlert(
     _namespace: string,
     _podNamePrefix: string,

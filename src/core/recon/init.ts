@@ -25,6 +25,7 @@ export class ReconInitEngine {
     const ns = options.namespace
     const steps: InitStep[] = []
 
+    // Create the namespace first; all subsequent steps depend on it existing.
     const nsStep = await this.ensureNamespace(ns)
     steps.push(nsStep)
     const alreadyExisted = nsStep.status === 'already-existed'
@@ -34,6 +35,7 @@ export class ReconInitEngine {
       return { clusterContext: context, namespace: ns, steps, alreadyExisted: false }
     }
 
+    // Apply ResourceQuota, ServiceAccount, Role, and RoleBinding in dependency order.
     steps.push(await this.ensureResourceQuota(ns))
     steps.push(await this.ensureServiceAccount(ns))
     steps.push(await this.ensureRole(ns))
@@ -50,6 +52,7 @@ export class ReconInitEngine {
       })
       return { name: `Namespace ${namespace} created`, status: 'ok' }
     } catch (err: unknown) {
+      // 409 means the namespace already exists — treat it as already-existed, not a failure.
       if (this.statusCode(err) === 409) {
         return { name: `Namespace ${namespace} already exists`, status: 'already-existed' }
       }
@@ -59,6 +62,7 @@ export class ReconInitEngine {
 
   private async ensureResourceQuota(namespace: string): Promise<InitStep> {
     const coreApi = this.kc.makeApiClient(k8s.CoreV1Api)
+    // Define conservative limits so test pods cannot consume unbounded cluster resources.
     const quota: k8s.V1ResourceQuota = {
       apiVersion: 'v1',
       kind: 'ResourceQuota',
@@ -93,6 +97,7 @@ export class ReconInitEngine {
   private async ensureServiceAccount(namespace: string): Promise<InitStep> {
     const coreApi = this.kc.makeApiClient(k8s.CoreV1Api)
     try {
+      // Create a dedicated service account so test pods run under a known, scoped identity.
       await coreApi.createNamespacedServiceAccount({
         namespace,
         body: {
@@ -112,6 +117,7 @@ export class ReconInitEngine {
 
   private async ensureRole(namespace: string): Promise<InitStep> {
     const rbacApi = this.kc.makeApiClient(k8s.RbacAuthorizationV1Api)
+    // Grant only the minimal permissions needed to create, inspect, and delete test pods.
     const role: k8s.V1Role = {
       apiVersion: 'rbac.authorization.k8s.io/v1',
       kind: 'Role',
@@ -134,6 +140,7 @@ export class ReconInitEngine {
 
   private async ensureRoleBinding(namespace: string): Promise<InitStep> {
     const rbacApi = this.kc.makeApiClient(k8s.RbacAuthorizationV1Api)
+    // Bind the runner ServiceAccount to the Role, scoping it to this namespace only.
     const binding: k8s.V1RoleBinding = {
       apiVersion: 'rbac.authorization.k8s.io/v1',
       kind: 'RoleBinding',

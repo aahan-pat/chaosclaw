@@ -18,10 +18,12 @@ export function registerListCommand(scenariosCmd: Command): void {
     .description('List available scenario packs and scenarios')
     .option('--pack <id>', 'Filter scenarios by pack')
     .action((opts: { pack?: string }) => {
+      // Build a fresh registry and populate it with all built-in preventive scenarios.
       const registry = new ScenarioRegistry()
       registry.registerPack(preventivePack)
       for (const s of preventiveScenarios) registry.register(s)
 
+      // Build a Map for runtime scenarios since they use a separate type from the registry.
       const runtimeById = new Map<string, RuntimeScenarioDefinition>(runtimeScenarios.map(s => [s.id, s]))
 
       // All packs — preventive from registry, runtime inline
@@ -36,7 +38,7 @@ export function registerListCommand(scenariosCmd: Command): void {
         console.log(`  ${chalk.bold(runtimePack.id.padEnd(24))} ${chalk.dim(count.padEnd(14))} ${runtimePack.description}`)
       }
 
-      // Determine which scenarios to list
+      // Determine which scenarios to list based on the optional --pack filter.
       let listedPreventive = opts.pack
         ? registry.getScenariosForPack(opts.pack)
         : registry.listScenarios()
@@ -45,6 +47,7 @@ export function registerListCommand(scenariosCmd: Command): void {
       if (!opts.pack) {
         listedRuntime = runtimeScenarios
       } else if (opts.pack === runtimePack.id) {
+        // When the runtime pack is selected, clear preventive results and show only runtime scenarios.
         listedPreventive = []
         listedRuntime = (runtimePack.scenarioIds)
           .map(id => runtimeById.get(id))

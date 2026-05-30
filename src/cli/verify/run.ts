@@ -27,6 +27,7 @@ const DEFAULT_RUNTIME_TIMEOUT_MS = 60_000
 
 type AnyScenario = ScenarioDefinition | RuntimeScenarioDefinition
 
+// Distinguish runtime scenarios from preventive ones by the presence of the execStep field.
 function isRuntimeScenario(s: AnyScenario): s is RuntimeScenarioDefinition {
   return 'execStep' in s
 }
@@ -95,6 +96,7 @@ export function registerRunCommand(verify: Command): void {
         process.exit(4)
       }
 
+      // Resolve the target scenario list from either a manifest file or the built-in registries.
       let targetScenarios: AnyScenario[]
       if (opts.manifest) {
         targetScenarios = [await loadManifestScenario(opts.manifest, opts.expect!)]
@@ -106,6 +108,7 @@ export function registerRunCommand(verify: Command): void {
         }
       }
 
+      // Check whether any scenarios require the runtime execution path.
       const hasRuntime = targetScenarios.some(isRuntimeScenario)
 
       if (hasRuntime && opts.alertSource === 'none' && opts.format !== 'json') {
@@ -125,6 +128,7 @@ export function registerRunCommand(verify: Command): void {
 
       const executor = new ScenarioExecutor(kc)
       const validator = new ValidationEngine()
+      // Only instantiate the runtime executor when the scenario set includes detection scenarios.
       const runtimeExecutor = hasRuntime ? new RuntimeScenarioExecutor(kc, buildAlertSource(opts.alertSource, kc)) : null
       const runtimeValidator = new RuntimeValidationEngine()
       const cleanup = new CleanupManager(kc)
@@ -161,10 +165,12 @@ export function registerRunCommand(verify: Command): void {
         let result: ScenarioResult
 
         if (isRuntimeScenario(scenario)) {
+          // Use the runtime executor for scenarios that require pod exec and alert observation.
           const timeoutMs = opts.timeout ? parseInt(opts.timeout, 10) : DEFAULT_RUNTIME_TIMEOUT_MS
           const execution = await runtimeExecutor!.execute(scenario, { namespace: opts.namespace, timeoutMs })
           const validation = runtimeValidator.validate(scenario, execution)
 
+          // Only track cleanup targets for pods that were actually admitted to the cluster.
           const createdResources = execution.createdResourceName
             ? [{ kind: 'Pod' as const, name: execution.createdResourceName, namespace: opts.namespace }]
             : []
@@ -183,6 +189,7 @@ export function registerRunCommand(verify: Command): void {
             cleanupStatus: cleanupResult.status,
             startedAt: execution.startedAt,
             endedAt: execution.endedAt,
+            // Prefer the structured alert payload over the raw response when an alert was captured.
             rawResponse: execution.alertDetail
               ? JSON.stringify(execution.alertDetail)
               : execution.rawResponse,
@@ -192,6 +199,7 @@ export function registerRunCommand(verify: Command): void {
 
           printCleanupWarning(cleanupResult)
         } else {
+          // Use the admission-based executor for preventive scenarios.
           const timeoutMs = opts.timeout ? parseInt(opts.timeout, 10) : DEFAULT_TIMEOUT_MS
           const execution = await executor.execute(scenario, { namespace: opts.namespace, timeoutMs })
           const validation = validator.validate(scenario, execution)
@@ -226,6 +234,7 @@ export function registerRunCommand(verify: Command): void {
 
         if (opts.format !== 'json') {
           indent(`${outcomeLabel(result.status)} ${scenario.id}`)
+          // In verbose mode, print extra diagnostic detail for non-passing scenarios.
           if (opts.verbose && (result.status === 'Fail' || result.status === 'Error')) {
             if (result.likelyIssue) indent(`Likely issue:      ${result.likelyIssue}`, 4)
             if (result.rawResponse) indent(`Raw response:      ${result.rawResponse}`, 4)
@@ -235,6 +244,7 @@ export function registerRunCommand(verify: Command): void {
 
         if (result.status === 'Fail' || result.status === 'Error') {
           exitCode = 1
+          // In fail-fast mode, record how many scenarios were skipped and stop iterating.
           if (opts.failFast) {
             notRun = targetScenarios.length - targetScenarios.indexOf(scenario) - 1
             break
@@ -306,13 +316,16 @@ export function registerRunCommand(verify: Command): void {
 
 /** Populate a fresh registry with all built-in packs and scenarios */
 function buildRegistry(): { preventive: ScenarioRegistry; runtime: Map<string, RuntimeScenarioDefinition>; runtimePacks: Map<string, string[]> } {
+  // Register all preventive scenarios and the pack that groups them.
   const preventive = new ScenarioRegistry()
   preventive.registerPack(preventivePack)
   for (const s of preventiveScenarios) preventive.register(s)
 
+  // Runtime scenarios use a plain Map because ScenarioRegistry is typed for preventive definitions.
   const runtime = new Map<string, RuntimeScenarioDefinition>()
   for (const s of runtimeScenarios) runtime.set(s.id, s)
 
+  // Store runtime pack membership separately so resolveScenarios can look up pack contents.
   const runtimePacks = new Map<string, string[]>()
   runtimePacks.set(runtimePack.id, runtimePack.scenarioIds)
 
@@ -327,6 +340,7 @@ function resolveScenarios(opts: { pack?: string; scenario?: string }): AnyScenar
   const { preventive, runtime, runtimePacks } = buildRegistry()
 
   if (opts.pack) {
+    // Combine preventive and runtime scenarios for mixed-type packs.
     const preventiveResults = preventive.getScenariosForPack(opts.pack)
     const runtimeIds = runtimePacks.get(opts.pack) ?? []
     const runtimeResults = runtimeIds.map(id => runtime.get(id)).filter((s): s is RuntimeScenarioDefinition => s !== undefined)
@@ -334,6 +348,7 @@ function resolveScenarios(opts: { pack?: string; scenario?: string }): AnyScenar
   }
 
   if (opts.scenario) {
+    // Check the preventive registry first, then fall back to the runtime map.
     const p = preventive.getScenario(opts.scenario)
     if (p) return [p]
     const r = runtime.get(opts.scenario)
@@ -360,6 +375,7 @@ async function loadManifestScenario(manifestPath: string, expect: string): Promi
 
   let parsed: unknown
   try {
+    // Accept both YAML and JSON by delegating to the Kubernetes client's parser.
     parsed = k8s.loadYaml(content)
   } catch {
     console.error(`\nError\n  Could not parse manifest file (expected valid YAML or JSON): ${manifestPath}`)
@@ -371,6 +387,7 @@ async function loadManifestScenario(manifestPath: string, expect: string): Promi
     process.exit(4)
   }
 
+  // Enforce Pod-only constraint since the executor only supports Pod creation.
   const manifest = parsed as Record<string, unknown>
 
   if (manifest['kind'] !== 'Pod') {
@@ -379,6 +396,7 @@ async function loadManifestScenario(manifestPath: string, expect: string): Promi
     process.exit(4)
   }
 
+  // Wrap the manifest in a minimal ScenarioDefinition so the standard run pipeline can execute it.
   return {
     id: `custom:${basename(manifestPath)}`,
     version: 1,
@@ -403,11 +421,13 @@ async function ensureNamespace(kc: k8s.KubeConfig, namespace: string): Promise<v
   try {
     await coreApi.createNamespace({ body: { apiVersion: 'v1', kind: 'Namespace', metadata: { name: namespace } } })
   } catch (err: unknown) {
+    // A 409 means the namespace already exists — that is the desired state, so swallow the error.
     const code = (err as { code?: number; statusCode?: number }).code ?? (err as { statusCode?: number }).statusCode
     if (code !== 409) throw err
   }
 }
 
+// Print a cleanup warning with kubectl delete commands when resources could not be removed.
 function printCleanupWarning(cleanupResult: { remainingResources: Array<{ kind: string; name: string; namespace: string }> }): void {
   if (cleanupResult.remainingResources.length === 0) return
   blank()
@@ -416,6 +436,7 @@ function printCleanupWarning(cleanupResult: { remainingResources: Array<{ kind: 
   for (const r of cleanupResult.remainingResources) {
     indent(`${r.kind} ${r.name} could not be deleted automatically`)
   }
+  // Provide ready-to-run kubectl commands so operators can clean up manually.
   section('Next')
   for (const r of cleanupResult.remainingResources) {
     indent(`kubectl delete ${r.kind.toLowerCase()} ${r.name} -n ${r.namespace}`)

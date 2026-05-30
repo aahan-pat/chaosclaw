@@ -48,19 +48,26 @@ export class TetragonAlertSource extends LogBasedAlertSource {
   protected readonly containerName = 'export-stdout'
 
   protected parseLine(line: string, namespace: string, podNamePrefix: string): RuntimeAlert | null {
+    // Ignore non-JSON lines to avoid paying the parse cost on startup log messages.
     if (!line.startsWith('{')) return null
     try {
       const ev = JSON.parse(line) as TetragonEvent
+      // Identify the process reference regardless of which event type (exec / kprobe / tracepoint) fired.
       const process = ev.process_exec?.process
         ?? ev.process_kprobe?.process
         ?? ev.process_tracepoint?.process
       if (!process) return null
 
+      // Extract Kubernetes pod context embedded in Tetragon's process reference.
       const alertNs = process.pod?.namespace ?? ''
       const alertPod = process.pod?.name ?? ''
+      // Skip events from other namespaces or pods not belonging to this test run.
       if (alertNs !== namespace || !alertPod.startsWith(podNamePrefix)) return null
 
+      // Determine whether the event represents an enforcement action (blocked) or a detection.
       const kprobeAction = ev.process_kprobe?.action ?? ev.process_tracepoint?.action
+      // Build a descriptive rule name by preferring the policy name, falling back to function/call,
+      // then binary name, and finally a generic label.
       const ruleName = ev.process_kprobe?.policy_name
         ?? ev.process_tracepoint?.policy_name
         ?? ev.process_kprobe?.function_name

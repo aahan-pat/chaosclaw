@@ -1,3 +1,5 @@
+// Surveys RBAC posture by listing cluster-admin bindings and service accounts with
+// cluster-wide secret read access — both high-impact privilege escalation vectors.
 import * as k8s from '@kubernetes/client-node'
 import type { ReconFinding, ReconOptions, ReconToolResult } from '../../types/recon.js'
 
@@ -26,6 +28,7 @@ export class RbacReconEngine {
     try {
       roles = (await rbacApi.listClusterRole()).items
     } catch (err: unknown) {
+      // A 403 means we can't list ClusterRoles — record a SKIP finding but continue.
       if (this.statusCode(err) === 403) {
         skipFindings.push({
           severity: 'SKIP',
@@ -52,7 +55,9 @@ export class RbacReconEngine {
     }
 
     const analysisFindings = this.analyze(roles, bindings, includeSystem)
+    // Merge analysis findings first so they appear before permission-skip notices.
     const findings: ReconFinding[] = [...analysisFindings, ...skipFindings]
+    // Mark as fully skipped only when permissions blocked all analysis and nothing was found.
     const isFullySkipped = skipFindings.length > 0 && analysisFindings.length === 0
 
     return {
@@ -74,7 +79,8 @@ export class RbacReconEngine {
   ): ReconFinding[] {
     const findings: ReconFinding[] = []
 
-    // Non-built-in cluster-admin bindings
+    // Identify non-built-in ClusterRoleBindings that grant cluster-admin, filtering out
+    // the default 'cluster-admin' binding that ships with every cluster.
     const adminBindings = bindings.filter(b => b.roleRef.name === 'cluster-admin' && b.metadata?.name !== 'cluster-admin')
     for (const binding of adminBindings) {
       const subjects = (binding.subjects ?? [])
@@ -90,12 +96,13 @@ export class RbacReconEngine {
       }
     }
 
-    // Service accounts with cluster-wide secret read access
+    // Build a lookup map from role name to role object so we can resolve bindings efficiently.
     const roleMap = new Map(roles.map(r => [r.metadata?.name ?? '', r]))
     for (const binding of bindings) {
       const role = roleMap.get(binding.roleRef.name)
       if (!role) continue
 
+      // Check if any RBAC rule grants broad (non-name-scoped) read access to secrets.
       const hasClusterWideSecretRead = (role.rules ?? []).some(rule => {
         const resources = rule.resources ?? []
         const verbs = rule.verbs ?? []
@@ -108,6 +115,7 @@ export class RbacReconEngine {
 
       if (!hasClusterWideSecretRead) continue
 
+      // Emit a HIGH finding for each non-system service account with this privilege.
       const serviceAccounts = (binding.subjects ?? [])
         .filter(s => s.kind === 'ServiceAccount')
         .filter(s => includeSystem || !SYSTEM_NAMESPACES.has(s.namespace ?? ''))

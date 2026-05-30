@@ -47,6 +47,7 @@ export class TopologyReconEngine {
     const resolvedPath = this.graphPath ?? DEFAULT_GRAPH_PATH
 
     if (this.graphPath) {
+      // When the caller supplies a path, validate it exists before attempting to parse it.
       if (!existsSync(this.graphPath)) {
         return {
           tool: 'topology',
@@ -56,6 +57,7 @@ export class TopologyReconEngine {
         }
       }
     } else {
+      // In auto mode, confirm graphnetes is on PATH before attempting to build.
       if (!this.isGraphnetesAvailable()) {
         return {
           tool: 'topology',
@@ -71,6 +73,7 @@ export class TopologyReconEngine {
         }
       }
 
+      // Run graphnetes build synchronously; any error is returned as an error result.
       const buildErr = this.buildGraph(options)
       if (buildErr !== null) {
         return { tool: 'topology', status: 'error', findings: [], data: { error: buildErr } }
@@ -79,6 +82,7 @@ export class TopologyReconEngine {
 
     let graph: GraphJson
     try {
+      // Parse the JSON graph file produced by graphnetes into the expected shape.
       graph = JSON.parse(readFileSync(resolvedPath, 'utf-8')) as GraphJson
     } catch (err) {
       return {
@@ -89,6 +93,7 @@ export class TopologyReconEngine {
       }
     }
 
+    // Compute topology statistics and convert them into recon findings.
     const stats = this.analyze(graph)
     return {
       tool: 'topology',
@@ -98,6 +103,7 @@ export class TopologyReconEngine {
     }
   }
 
+  // Test whether graphnetes is available by running --help and checking for ENOENT.
   private isGraphnetesAvailable(): boolean {
     const result = spawnSync('graphnetes', ['--help'], { encoding: 'utf-8', timeout: 5000 })
     return (result.error as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT'
@@ -109,12 +115,14 @@ export class TopologyReconEngine {
     if (options.namespace) args.push('--namespace', options.namespace)
     if (options.context) args.push('--context', options.context)
 
+    // Run graphnetes synchronously so the caller can await the full build before reading the output.
     const result = spawnSync('graphnetes', args, { encoding: 'utf-8', timeout: 60_000 })
 
     if (result.error) return `graphnetes build failed: ${result.error.message}`
     if (result.status !== 0) {
       return `graphnetes build exited ${result.status}: ${result.stderr?.trim() ?? ''}`
     }
+    // Guard against a successful exit code that didn't actually produce the output file.
     if (!existsSync(DEFAULT_GRAPH_PATH)) {
       return `graphnetes build succeeded but ${DEFAULT_GRAPH_PATH} was not created`
     }
@@ -122,11 +130,13 @@ export class TopologyReconEngine {
   }
 
   private analyze(graph: GraphJson): TopologyStats {
+    // Count nodes by Kubernetes kind for the summary table.
     const byKind: Record<string, number> = {}
     for (const node of graph.nodes) {
       byKind[node.kind] = (byKind[node.kind] ?? 0) + 1
     }
 
+    // Build an outbound edge index keyed by source node ID for O(1) lookups below.
     const outEdges = new Map<string, GraphEdge[]>()
     for (const edge of graph.edges) {
       const list = outEdges.get(edge.source) ?? []
@@ -134,6 +144,7 @@ export class TopologyReconEngine {
       outEdges.set(edge.source, list)
     }
 
+    // Collect Ingress nodes and the Services they route traffic to via 'routes_to' edges.
     const ingressPaths = graph.nodes
       .filter(n => n.kind === 'Ingress')
       .map(n => ({
@@ -146,6 +157,7 @@ export class TopologyReconEngine {
     const secretMounts: TopologyStats['secretMounts'] = []
     const serviceAccountBindings: TopologyStats['serviceAccountBindings'] = []
 
+    // Walk all Pod nodes and classify their outgoing edges into secret mounts and SA bindings.
     for (const node of graph.nodes) {
       if (node.kind !== 'Pod') continue
       for (const edge of outEdges.get(node.id) ?? []) {
@@ -164,6 +176,7 @@ export class TopologyReconEngine {
   private toFindings(stats: TopologyStats): ReconFinding[] {
     const findings: ReconFinding[] = []
 
+    // Summarise the full resource inventory as an INFO finding for the operator.
     const kindSummary = Object.entries(stats.byKind)
       .sort((a, b) => b[1] - a[1])
       .map(([k, v]) => `${k}: ${v}`)
@@ -175,6 +188,7 @@ export class TopologyReconEngine {
       detail: kindSummary || 'No resources found',
     })
 
+    // Report Ingress resources that have downstream Service routes as potential attack surface.
     const exposedIngresses = stats.ingressPaths.filter(p => p.routesTo.length > 0)
     if (exposedIngresses.length > 0) {
       findings.push({
@@ -185,9 +199,11 @@ export class TopologyReconEngine {
     }
 
     if (stats.secretMounts.length > 0) {
+      // Truncate the detail string to keep the finding readable even with many mounts.
       const truncated = stats.secretMounts.slice(0, 10).map(m => `${m.podId} mounts ${m.secretId}`)
       if (stats.secretMounts.length > 10) truncated.push(`+${stats.secretMounts.length - 10} more`)
       findings.push({
+        // Raise to WARN when the number of secret mounts suggests excessive secret exposure.
         severity: stats.secretMounts.length > 5 ? 'WARN' : 'INFO',
         title: `${stats.secretMounts.length} Pod→Secret mount(s) detected`,
         detail: truncated.join('; '),

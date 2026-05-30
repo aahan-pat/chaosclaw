@@ -39,6 +39,7 @@ export function registerAllCommand(recon: Command): void {
       includeSystem?: boolean
     }) => {
       const { kc, clusterContext } = buildKubeConfig(opts.context)
+      // Parse the comma-separated skip list into a Set for O(1) membership checks.
       const skipSet = new Set((opts.skip ?? '').split(',').map(s => s.trim()).filter(Boolean))
       const startedAt = new Date().toISOString()
 
@@ -61,6 +62,7 @@ export function registerAllCommand(recon: Command): void {
         await initEngine.run(reconOptions)
         if (opts.format !== 'json') indent(`${chalk.green('[OK]')}   Namespace initialized`)
       } catch {
+        // Namespace init failure is non-fatal — the survey can continue against an existing namespace.
         if (opts.format !== 'json') indent(`${chalk.yellow('[WARN]')} Namespace init failed — continuing with existing namespace`)
         initOk = false
       }
@@ -80,6 +82,7 @@ export function registerAllCommand(recon: Command): void {
       const toolResults: ReconToolResult[] = []
 
       for (const [toolName, engine] of tools) {
+        // Skip tools that were explicitly excluded via --skip without running them.
         if (skipSet.has(toolName)) {
           if (opts.format !== 'json') indent(`${chalk.dim('[--]')}   ${toolName} — skipped`)
           continue
@@ -89,6 +92,7 @@ export function registerAllCommand(recon: Command): void {
         try {
           result = await engine.run(reconOptions)
         } catch (err: unknown) {
+          // Any uncaught error is recorded as an error result so the survey can continue.
           const msg = err instanceof Error ? err.message : String(err)
           result = { tool: toolName, status: 'error', findings: [], data: { error: msg } }
         }
@@ -96,6 +100,7 @@ export function registerAllCommand(recon: Command): void {
         toolResults.push(result)
 
         if (opts.format !== 'json') {
+          // Count only notable findings (not SKIP/INFO) for the inline progress badge.
           const notableFindings = result.findings.filter(f => f.severity !== 'SKIP' && f.severity !== 'INFO')
           const findingCount = notableFindings.length
           const badge = result.status === 'skip'
@@ -111,6 +116,7 @@ export function registerAllCommand(recon: Command): void {
       const endedAt = new Date().toISOString()
       const report = buildReport(clusterContext, opts.namespace, startedAt, endedAt, toolResults)
 
+      // Write the report file before printing table output so --output is always populated.
       if (opts.output) await writeJsonToFile(opts.output, report)
 
       if (opts.format === 'json') {
@@ -122,6 +128,7 @@ export function registerAllCommand(recon: Command): void {
       blank()
       section('Findings Summary')
       const s = report.summary
+      // Build a compact severity summary string, omitting zero-count severities.
       const parts: string[] = []
       if (s.critical > 0) parts.push(chalk.red(`Critical: ${s.critical}`))
       if (s.high > 0) parts.push(chalk.red(`High: ${s.high}`))
@@ -130,7 +137,7 @@ export function registerAllCommand(recon: Command): void {
       if (s.skip > 0) parts.push(chalk.yellow(`Skip: ${s.skip}`))
       indent(parts.length > 0 ? parts.join('    ') : 'No findings')
 
-      // Highlight critical and high findings
+      // Highlight critical and high findings inline so they don't require reading the JSON report.
       const notable = toolResults.flatMap(r => r.findings).filter(f => f.severity === 'CRITICAL' || f.severity === 'HIGH' || f.severity === 'WARN')
       if (notable.length > 0) {
         section('Notable Findings')
@@ -146,11 +153,13 @@ export function registerAllCommand(recon: Command): void {
         indent(`JSON report written to: ${opts.output}`)
       }
 
+      // Exit with code 1 if the namespace init failed so CI can detect the setup issue.
       if (!initOk) process.exit(1)
       process.exit(0)
     })
 }
 
+// Return the coloured badge for the most severe finding in a list to use in per-tool progress output.
 function worstSeverityBadge(findings: ReconFinding[]): string {
   if (findings.some(f => f.severity === 'CRITICAL')) return chalk.red('[CRITICAL]')
   if (findings.some(f => f.severity === 'HIGH'))     return chalk.red('[HIGH]')
@@ -158,6 +167,7 @@ function worstSeverityBadge(findings: ReconFinding[]): string {
   return chalk.green('[OK]')
 }
 
+// Aggregate all per-tool findings into a summary count map and assemble the final ReconReport.
 function buildReport(
   clusterContext: string,
   namespace: string,
@@ -166,6 +176,7 @@ function buildReport(
   tools: ReconToolResult[],
 ): ReconReport {
   const summary = { critical: 0, high: 0, warn: 0, info: 0, skip: 0 }
+  // Map each severity string to its corresponding summary key for safe accumulation.
   const severityKey: Record<ReconFindingSeverity, keyof typeof summary> = {
     CRITICAL: 'critical',
     HIGH: 'high',

@@ -19,6 +19,7 @@ export abstract class LogBasedAlertSource implements RuntimeAlertSource {
 
   constructor(protected readonly kc: k8s.KubeConfig) {}
 
+  // Confirm the agent is running by finding at least one Running pod matching the label selectors.
   async isAvailable(): Promise<boolean> {
     try {
       const pods = await this.findAgentPods()
@@ -28,16 +29,19 @@ export abstract class LogBasedAlertSource implements RuntimeAlertSource {
     }
   }
 
+  // Poll agent pod logs repeatedly until a matching alert is found or the observation window expires.
   async pollForAlert(
     namespace: string,
     podNamePrefix: string,
     windowStart: string,
     windowMs: number,
   ): Promise<RuntimeAlert | null> {
+    // Compute the absolute deadline so the loop terminates even if checkLogs is slow.
     const deadline = Date.now() + windowMs
     while (Date.now() < deadline) {
       const alert = await this.checkLogs(namespace, podNamePrefix, windowStart)
       if (alert) return alert
+      // Sleep only as long as the remaining window allows, to avoid overshooting the deadline.
       const remaining = deadline - Date.now()
       if (remaining <= 0) break
       await new Promise(r => setTimeout(r, Math.min(POLL_INTERVAL_MS, remaining)))
@@ -73,6 +77,8 @@ export abstract class LogBasedAlertSource implements RuntimeAlertSource {
       const podName = pod.metadata?.name ?? ''
       const podNamespace = pod.metadata?.namespace ?? 'default'
       try {
+        // Fetch recent log bytes from the agent container, bounded by LOG_LIMIT_BYTES to
+        // avoid stalling on a very chatty agent.
         const logs = await coreApi.readNamespacedPodLog({
           name: podName,
           namespace: podNamespace,
@@ -80,6 +86,7 @@ export abstract class LogBasedAlertSource implements RuntimeAlertSource {
           sinceSeconds,
           limitBytes: LOG_LIMIT_BYTES,
         })
+        // Scan line-by-line and delegate JSON parsing to the subclass implementation.
         for (const line of logs.split('\n')) {
           const trimmed = line.trim()
           if (!trimmed) continue
@@ -91,11 +98,14 @@ export abstract class LogBasedAlertSource implements RuntimeAlertSource {
     return null
   }
 
+  // Try each label selector in order and return the first set of Running pods found,
+  // falling back to an empty array when all selectors fail or return no results.
   protected async findAgentPods(): Promise<k8s.V1Pod[]> {
     const coreApi = this.kc.makeApiClient(k8s.CoreV1Api)
     for (const selector of this.labelSelectors) {
       try {
         const response = await coreApi.listPodForAllNamespaces({ labelSelector: selector })
+        // Only consider Running pods — pending/failed pods won't have useful logs.
         const running = response.items.filter(p => p.status?.phase === 'Running')
         if (running.length > 0) return running
       } catch { continue }

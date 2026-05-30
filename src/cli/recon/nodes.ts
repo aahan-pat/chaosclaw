@@ -40,9 +40,11 @@ export function registerNodesCommand(recon: Command): void {
         process.exit(0)
       }
 
+      // Cast the data payload to access the typed node list for rendering.
       const nodes = (result.data as { nodes?: NodeInfo[] }).nodes ?? []
       section(`Nodes (${nodes.length})`)
       for (const node of nodes) {
+        // Print each node as a brief block: name, then OS/kernel and runtime/seccomp on separate lines.
         blank()
         indent(node.name)
         indent(`OS: ${node.os}    Kernel: ${node.kernel}`, 4)

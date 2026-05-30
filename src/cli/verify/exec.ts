@@ -54,11 +54,13 @@ export function registerExecCommand(verify: Command): void {
       format: string
       cleanup: string
     }) => {
+      // Validate --expect before touching the cluster so the error is immediate and clear.
       if (!VALID_EXPECTS.includes(opts.expect as ExecExpect)) {
         console.error(`\nError\n  --expect must be one of: ${VALID_EXPECTS.join(', ')}. Got: "${opts.expect}"`)
         process.exit(4)
       }
 
+      // Load and validate the manifest; exits with code 4 on any parse error.
       const manifest = await loadPodManifest(opts.pod)
       const container = opts.container ?? resolveFirstContainer(manifest)
       if (!container) {
@@ -66,6 +68,7 @@ export function registerExecCommand(verify: Command): void {
         process.exit(4)
       }
 
+      // Build the Kubernetes client and optionally switch to the requested context.
       const kc = new k8s.KubeConfig()
       kc.loadFromDefault()
       if (opts.context) kc.setCurrentContext(opts.context)
@@ -73,6 +76,7 @@ export function registerExecCommand(verify: Command): void {
 
       await ensureNamespace(kc, opts.namespace)
 
+      // Convert all timeout/window options from seconds to milliseconds for use with the APIs.
       const podTimeoutMs = parseInt(opts.podTimeout, 10) * 1_000
       const execTimeoutMs = parseInt(opts.execTimeout, 10) * 1_000
       const observationWindowMs = parseInt(opts.observationWindow, 10) * 1_000
@@ -81,6 +85,7 @@ export function registerExecCommand(verify: Command): void {
       const cleanup = new CleanupManager(kc)
       const builder = new EvidenceBuilder({ clusterContext, startedAt: new Date().toISOString() })
       const startedAt = new Date().toISOString()
+      // Build a unique scenario ID from the manifest filename so evidence artifacts are traceable.
       const scenarioId = `exec:${basename(opts.pod)}`
 
       if (opts.format !== 'json') {
@@ -103,9 +108,11 @@ export function registerExecCommand(verify: Command): void {
       let alertJson: string | undefined
 
       try {
+        // Submit the pod, wait for it to be Running, then exec the command inside it.
         podName = await submitPod(kc, opts.namespace, injected)
         await waitForPodRunning(kc, opts.namespace, podName, podTimeoutMs)
 
+        // Record the exec start time so the alert poll window is anchored to the right moment.
         const windowStart = new Date().toISOString()
         const execResult = await execCapturing(kc, opts.namespace, podName, container, command, execTimeoutMs)
         observedOutcome = execResult.result
@@ -116,6 +123,7 @@ export function registerExecCommand(verify: Command): void {
           stderr: execResult.stderr,
         })
 
+        // If an alert source is configured, poll for a correlated alert after the exec.
         if (opts.alertSource !== 'none') {
           const alert = await alertSource.pollForAlert(opts.namespace, 'chaosclaw-test-', windowStart, observationWindowMs)
           if (alert) {
@@ -129,12 +137,14 @@ export function registerExecCommand(verify: Command): void {
         likelyIssue = 'Kubernetes API error — check cluster connectivity and RBAC'
       }
 
+      // Map observed outcome to Pass/Fail/Error by comparing against the expected value.
       const status = observedOutcome === 'api_error' ? 'Error' as const
         : observedOutcome === opts.expect ? 'Pass' as const
         : 'Fail' as const
 
       if (status === 'Fail') likelyIssue = diagnoseExec(opts.expect as ExecExpect, observedOutcome)
 
+      // Only include the pod in cleanup targets if it was actually created.
       const createdResources = podName
         ? [{ kind: 'Pod' as const, name: podName, namespace: opts.namespace }]
         : []
@@ -173,6 +183,7 @@ export function registerExecCommand(verify: Command): void {
       if (likelyIssue) indent(`Issue:    ${likelyIssue}`)
 
       if (alertJson) {
+        // Re-parse the alert JSON for display, extracting the fields most useful to the operator.
         const alert = JSON.parse(alertJson) as { source: string; ruleName: string; podName: string; triggeredAt: string; action?: string }
         section('Alert Fired')
         indent(`Source:    ${alert.source}`)
@@ -201,6 +212,7 @@ export function registerExecCommand(verify: Command): void {
     })
 }
 
+// Return a targeted diagnostic hint based on the direction of the expectation mismatch.
 function diagnoseExec(expected: ExecExpect, observed: string): string {
   if (expected === 'denied' && observed === 'succeeded') {
     return 'pods/exec is permitted — RBAC does not restrict exec into pods in this namespace'

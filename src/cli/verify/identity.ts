@@ -48,10 +48,12 @@ export function registerIdentityCommand(verify: Command): void {
       if (opts.context) kc.setCurrentContext(opts.context)
       const clusterContext = opts.context ?? kc.getCurrentContext()
 
+      // Split 'pods/exec' into resource='pods', subresource='exec' for the SubjectAccessReview spec.
       const [resource, subresource] = opts.resource.includes('/')
         ? opts.resource.split('/', 2) as [string, string | undefined]
         : [opts.resource, undefined]
 
+      // Build the fully-qualified service account user string expected by the authorization API.
       const saUser = `system:serviceaccount:${opts.namespace}:${opts.as}`
       const scenarioId = `identity:${opts.as}/${opts.can}/${opts.resource}`
       const startedAt = new Date().toISOString()
@@ -74,6 +76,7 @@ export function registerIdentityCommand(verify: Command): void {
       let rawResponse: string
 
       try {
+        // Issue a SubjectAccessReview to ask the API server what the target SA is allowed to do.
         const authApi = kc.makeApiClient(k8s.AuthorizationV1Api)
         const review = await authApi.createSubjectAccessReview({
           body: {
@@ -92,6 +95,7 @@ export function registerIdentityCommand(verify: Command): void {
           },
         })
 
+        // Translate the API response into a simple allowed/denied observation.
         const allowed = review.status?.allowed === true
         observedOutcome = allowed ? 'allowed' : 'denied'
         rawResponse = JSON.stringify({
@@ -105,6 +109,8 @@ export function registerIdentityCommand(verify: Command): void {
       } catch (err: unknown) {
         const statusCode = (err as { statusCode?: number }).statusCode ?? (err as { code?: number }).code
         if (statusCode === 403) {
+          // 403 on the SubjectAccessReview endpoint itself means our credentials lack the permission
+          // to ask the question — exit early with a clear explanation.
           console.error('\nError\n  Insufficient permissions to create SubjectAccessReview')
           console.error('  This requires: create subjectaccessreviews (authorization.k8s.io)')
           process.exit(2)
@@ -114,6 +120,7 @@ export function registerIdentityCommand(verify: Command): void {
         likelyIssue = 'Kubernetes API error — check cluster connectivity and RBAC'
       }
 
+      // Map the observed outcome to Pass/Fail/Error by comparing against the expected value.
       const status = observedOutcome === 'api_error' ? 'Error' as const
         : observedOutcome === opts.expect ? 'Pass' as const
         : 'Fail' as const
@@ -162,6 +169,7 @@ export function registerIdentityCommand(verify: Command): void {
     })
 }
 
+// Return a targeted diagnostic message based on whether the SA has more or fewer permissions than expected.
 function diagnoseIdentity(expected: IdentityExpect, observed: string, sa: string, verb: string, resource: string): string {
   if (expected === 'denied' && observed === 'allowed') {
     return `${sa} can ${verb} ${resource} — RBAC grants more permission than expected`

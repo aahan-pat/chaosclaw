@@ -56,12 +56,14 @@ export function registerDetectCommand(verify: Command): void {
         process.exit(4)
       }
 
+      // Warn early when no alert source is configured so the operator understands the limitation.
       if (opts.alertSource === 'none' && opts.format !== 'json') {
         console.log(chalk.yellow('\n[WARN] No alert source configured (--alert-source none)'))
         console.log(chalk.yellow('       The threat command will execute but the observed outcome will always be "no_alert".'))
         console.log(chalk.yellow('       Use --alert-source falco, tetragon, or kubearmor to poll a real detection tool.\n'))
       }
 
+      // Build a synthetic RuntimeScenarioDefinition wrapping the user-supplied manifest.
       const scenario = await loadDetectScenario(opts.pod, opts.run, opts.container, opts.expect as DetectExpect)
 
       const kc = new k8s.KubeConfig()
@@ -76,6 +78,7 @@ export function registerDetectCommand(verify: Command): void {
       // Hard ceiling: pod startup + observation window + 5s grace
       const timeoutMs = podTimeoutMs + observationWindowMs + 5_000
 
+      // Wire the runtime executor to the chosen alert source adapter.
       const executor = new RuntimeScenarioExecutor(kc, buildAlertSource(opts.alertSource, kc))
       const validator = new RuntimeValidationEngine()
       const cleanup = new CleanupManager(kc)
@@ -97,6 +100,7 @@ export function registerDetectCommand(verify: Command): void {
         section('Running')
       }
 
+      // Run the full scenario (submit pod → exec threat → observe alert).
       const execution = await executor.execute(scenario, {
         namespace: opts.namespace,
         observationWindowMs,
@@ -104,6 +108,7 @@ export function registerDetectCommand(verify: Command): void {
       })
       const validation = validator.validate(scenario, execution)
 
+      // Only add the pod to cleanup targets if it was actually created before any failure.
       const createdResources = execution.createdResourceName
         ? [{ kind: 'Pod' as const, name: execution.createdResourceName, namespace: opts.namespace }]
         : []
@@ -118,11 +123,13 @@ export function registerDetectCommand(verify: Command): void {
         scenarioId: scenario.id,
         version: scenario.version,
         status: validation.status,
+        // Replace underscores with spaces to produce a readable expected-outcome string.
         expectedOutcome: opts.expect.replace(/_/g, ' '),
         observedOutcome: validation.observedOutcome,
         cleanupStatus: cleanupResult.status,
         startedAt: execution.startedAt,
         endedAt: execution.endedAt,
+        // Prefer the structured alert detail over the raw response string when available.
         rawResponse: execution.alertDetail
           ? JSON.stringify(execution.alertDetail)
           : execution.rawResponse,
@@ -173,6 +180,8 @@ export function registerDetectCommand(verify: Command): void {
     })
 }
 
+// Construct a minimal RuntimeScenarioDefinition from CLI options so the detect command
+// can reuse the same execution pipeline as built-in scenarios.
 async function loadDetectScenario(
   podPath: string,
   run: string,
@@ -180,6 +189,7 @@ async function loadDetectScenario(
   expect: DetectExpect,
 ): Promise<RuntimeScenarioDefinition> {
   const manifest = await loadPodManifest(podPath)
+  // Fall back to the first container in the spec when --container is not specified.
   const resolvedContainer = container ?? resolveFirstContainer(manifest)
   if (!resolvedContainer) {
     console.error('\nError\n  Could not determine container name — specify --container or ensure the pod spec includes named containers')
@@ -197,6 +207,7 @@ async function loadDetectScenario(
     manifest,
     execStep: {
       container: resolvedContainer,
+      // Split the run string on spaces to produce the exec argv array.
       command: run.split(' '),
     },
     expectedOutcome: { type: expect as RuntimeExpectedOutcomeType },

@@ -44,6 +44,7 @@ export class EvidenceBuilder {
    * Call this once all scenarios have finished; pass the current timestamp as endedAt.
    */
   build(endedAt: string): RunEvidence {
+    // Compute the aggregate summary counts before assembling the document.
     const summary = this.summarize()
     return {
       runId: this.runId,
@@ -52,6 +53,7 @@ export class EvidenceBuilder {
       // Attribute the run to the OS user for audit trail purposes
       initiatedBy: process.env['USER'] ?? 'unknown',
       packId: this.options.packId,
+      // Convert packVersion to string since the type allows number but JSON expects string.
       packVersion: this.options.packVersion !== undefined ? String(this.options.packVersion) : undefined,
       scenarioId: this.options.scenarioId,
       startedAt: this.options.startedAt,
@@ -63,12 +65,14 @@ export class EvidenceBuilder {
 
   /** Write the evidence document to a JSON file for use as a CI artefact */
   async writeToFile(filePath: string, evidence: RunEvidence): Promise<void> {
+    // Create parent directories if they do not exist so callers can specify deep paths.
     await mkdir(dirname(filePath), { recursive: true })
     await writeFile(filePath, JSON.stringify(evidence, null, 2), 'utf-8')
   }
 
   /** Reduce all results into a flat count-per-status summary */
   private summarize(): RunSummary {
+    // Use reduce so the accumulator is initialised once and each result increments exactly one counter.
     return this.results.reduce<RunSummary>(
       (acc, r) => {
         switch (r.status) {

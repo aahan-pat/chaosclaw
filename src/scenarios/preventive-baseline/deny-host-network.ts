@@ -1,3 +1,4 @@
+// Scenario: verify that the cluster rejects pods requesting access to the host network namespace.
 import type { ScenarioDefinition } from '../../types/scenario.js'
 
 const PACK_ID = 'preventive-baseline'

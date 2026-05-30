@@ -1,3 +1,5 @@
+// Detects which policy engine is installed (Kyverno or Gatekeeper) and surveys
+// enforcement modes to identify policies running in audit-only mode.
 import * as k8s from '@kubernetes/client-node'
 import type { ReconFinding, ReconOptions, ReconToolResult } from '../../types/recon.js'
 
@@ -20,16 +22,19 @@ export class PolicyReconEngine {
   constructor(private readonly kc: k8s.KubeConfig) {}
 
   async run(options: ReconOptions): Promise<ReconToolResult> {
+    // Respect an explicit engine override from the CLI, defaulting to auto-detection.
     const engineOverride = options.engine ?? 'auto'
     const findings: ReconFinding[] = []
     const policies: PolicyInfo[] = []
     let detectedEngine: PolicyEngine = 'none'
 
+    // Probe Kyverno first in auto mode; skip if the operator forced a specific engine.
     if (engineOverride === 'auto' || engineOverride === 'kyverno') {
       const result = await this.probeKyverno()
       if (result.installed) {
         detectedEngine = 'kyverno'
         policies.push(...result.policies)
+        // Kyverno is installed but the CRD listing was forbidden — note the coverage gap.
         if (result.permissionDenied) {
           findings.push({
             severity: 'SKIP',
@@ -42,6 +47,7 @@ export class PolicyReconEngine {
       }
     }
 
+    // Only probe Gatekeeper if Kyverno was not found (in auto mode) or if forced.
     if (detectedEngine === 'none' && (engineOverride === 'auto' || engineOverride === 'gatekeeper')) {
       const result = await this.probeGatekeeper()
       if (result.installed) {
@@ -59,6 +65,7 @@ export class PolicyReconEngine {
       }
     }
 
+    // No engine found at all is a CRITICAL gap — preventive scenarios will have nothing to test.
     if (detectedEngine === 'none') {
       findings.push({
         severity: 'CRITICAL',
@@ -66,6 +73,7 @@ export class PolicyReconEngine {
         detail: 'Kyverno and OPA/Gatekeeper are not installed. The cluster has no admission-level policy enforcement beyond built-in PSA. All preventive-baseline scenarios will likely be SKIPPED.',
       })
     } else if (policies.length > 0) {
+      // Flag individual policies running in Audit mode — they log violations but do not block.
       const auditOnly = policies.filter(p => p.validationFailureAction?.toLowerCase() === 'audit')
       for (const p of auditOnly) {
         findings.push({
@@ -83,6 +91,7 @@ export class PolicyReconEngine {
       }
     }
 
+    // Mark the result as 'skip' only if a permission error prevented all policy reads.
     const isSkipped = findings.some(f => f.severity === 'SKIP') && policies.length === 0
 
     return {
@@ -96,6 +105,7 @@ export class PolicyReconEngine {
   private async probeKyverno(): Promise<EngineProbeResult> {
     const customApi = this.kc.makeApiClient(k8s.CustomObjectsApi)
     try {
+      // List Kyverno ClusterPolicies to both confirm installation and enumerate enforcement modes.
       const response = await customApi.listClusterCustomObject({
         group: 'kyverno.io',
         version: 'v1',
@@ -109,6 +119,7 @@ export class PolicyReconEngine {
         return {
           name: meta?.['name'] as string ?? 'unknown',
           engine: 'kyverno',
+          // Capture validationFailureAction to detect audit-only policies downstream.
           validationFailureAction: spec?.['validationFailureAction'] as string | undefined,
         }
       })
@@ -116,7 +127,9 @@ export class PolicyReconEngine {
       return { installed: true, permissionDenied: false, policies }
     } catch (err: unknown) {
       const code = this.statusCode(err)
+      // 404 means the Kyverno CRD group is not registered — engine is absent.
       if (code === 404) return { installed: false, permissionDenied: false, policies: [] }
+      // 403 means Kyverno is installed but we lack read permission for its policies.
       if (code === 403) return { installed: true, permissionDenied: true, policies: [] }
       return { installed: false, permissionDenied: false, policies: [] }
     }
@@ -125,6 +138,7 @@ export class PolicyReconEngine {
   private async probeGatekeeper(): Promise<EngineProbeResult> {
     const customApi = this.kc.makeApiClient(k8s.CustomObjectsApi)
     try {
+      // List Gatekeeper ConstraintTemplates to confirm installation and count policies.
       const response = await customApi.listClusterCustomObject({
         group: 'constraints.gatekeeper.sh',
         version: 'v1beta1',

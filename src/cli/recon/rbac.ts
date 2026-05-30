@@ -37,6 +37,7 @@ export function registerRbacCommand(recon: Command): void {
 
       header('ChaosClaw Recon — RBAC Posture')
       field('Cluster Context', clusterContext)
+      // Inform the operator when system namespace accounts are included in analysis.
       if (opts.includeSystem) field('Scope', 'including kube-system')
 
       if (result.status === 'skip' || result.status === 'error') {
@@ -45,10 +46,12 @@ export function registerRbacCommand(recon: Command): void {
         process.exit(0)
       }
 
+      // Cast the data payload to its known shape for display.
       const data = result.data as { clusterRoleCount?: number; clusterRoleBindingCount?: number; partial?: boolean }
       section('Survey')
       indent(`ClusterRoles scanned: ${data.clusterRoleCount ?? 0}`)
       indent(`ClusterRoleBindings scanned: ${data.clusterRoleBindingCount ?? 0}`)
+      // Note partial analysis so the operator knows findings may be incomplete.
       if (data.partial) indent('Note: analysis is partial — some resources could not be listed')
 
       renderReconFindings(result.findings)

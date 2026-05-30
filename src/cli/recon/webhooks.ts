@@ -14,6 +14,7 @@ export function registerWebhooksCommand(recon: Command): void {
     .option('--output <path>', 'Write JSON result to file')
     .option('--verbose', 'Show all webhook rule detail')
     .action(async (opts: { context?: string; namespace: string; format: string; output?: string; verbose?: boolean }) => {
+      // Build the KubeConfig once and share it with the engine.
       const { kc, clusterContext } = buildKubeConfig(opts.context)
       const engine = new WebhookReconEngine(kc)
 
@@ -25,6 +26,7 @@ export function registerWebhooksCommand(recon: Command): void {
         process.exit(2)
       }
 
+      // Persist the JSON result before deciding which output format to render.
       if (opts.output) await writeJsonToFile(opts.output, result)
 
       if (opts.format === 'json') {
@@ -35,12 +37,14 @@ export function registerWebhooksCommand(recon: Command): void {
       header('ChaosClaw Recon — Admission Webhooks')
       field('Cluster Context', clusterContext)
 
+      // On skip/error, show whatever findings were collected and exit cleanly.
       if (result.status === 'skip' || result.status === 'error') {
         renderReconFindings(result.findings)
         blank()
         process.exit(0)
       }
 
+      // Separate webhooks into validating and mutating sections for clearer output.
       const webhooks = (result.data as { webhooks?: WebhookInfo[] }).webhooks ?? []
       const validating = webhooks.filter(w => w.type === 'validating')
       const mutating = webhooks.filter(w => w.type === 'mutating')
@@ -48,6 +52,7 @@ export function registerWebhooksCommand(recon: Command): void {
       if (validating.length > 0) {
         section(`Validating Webhooks (${validating.length})`)
         for (const wh of validating) {
+          // Highlight failure-open webhooks inline so they stand out immediately.
           const failMark = wh.failurePolicy === 'Ignore' ? chalk.yellow('  ← fails open') : ''
           blank()
           indent(wh.name)

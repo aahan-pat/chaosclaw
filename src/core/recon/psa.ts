@@ -1,3 +1,5 @@
+// Surveys Pod Security Admission labels across all namespaces to identify those
+// running without enforce labels, which allows non-compliant pods to be admitted.
 import * as k8s from '@kubernetes/client-node'
 import type { ReconFinding, ReconOptions, ReconToolResult } from '../../types/recon.js'
 
@@ -22,6 +24,8 @@ export class PsaReconEngine {
     try {
       const response = await coreApi.listNamespace()
 
+      // Map each namespace to its PSA label triplet and flag system namespaces so analysis
+      // can exclude them from user-facing findings.
       const namespaces: NamespacePsaStatus[] = response.items.map(ns => {
         const name = ns.metadata?.name ?? ''
         const labels = ns.metadata?.labels ?? {}
@@ -61,9 +65,12 @@ export class PsaReconEngine {
 
   private analyze(namespaces: NamespacePsaStatus[]): ReconFinding[] {
     const findings: ReconFinding[] = []
+    // Exclude system namespaces — they are expected to run privileged workloads.
     const userNamespaces = namespaces.filter(n => !n.isSystem)
 
+    // Namespaces with no PSA labels at all have completely unenforced pod security.
     const noLabels = userNamespaces.filter(n => !n.enforce && !n.audit && !n.warn)
+    // Namespaces with only audit/warn labels log violations but admit non-compliant pods.
     const auditOnly = userNamespaces.filter(n => !n.enforce && (n.audit || n.warn))
 
     if (noLabels.length > 0) {
@@ -82,6 +89,7 @@ export class PsaReconEngine {
       })
     }
 
+    // All user namespaces have enforce labels — report as INFO to confirm secure posture.
     if (noLabels.length === 0 && auditOnly.length === 0 && userNamespaces.length > 0) {
       findings.push({
         severity: 'INFO',

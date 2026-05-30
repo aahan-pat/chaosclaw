@@ -40,12 +40,14 @@ export function registerNetworkPoliciesCommand(recon: Command): void {
       }
 
       const namespaces = (result.data as { namespaces?: NamespaceNetworkStatus[] }).namespaces ?? []
+      // Split namespaces into two groups for separate display sections.
       const withPolicies = namespaces.filter(n => n.policyCount > 0)
       const withoutPolicies = namespaces.filter(n => n.policyCount === 0)
 
       if (withPolicies.length > 0) {
         section('Namespaces with policies')
         for (const ns of withPolicies) {
+          // Build a coverage summary string like 'ingress + egress' from boolean flags.
           const coverage = [
             ns.hasIngress ? 'ingress' : null,
             ns.hasEgress ? 'egress' : null,

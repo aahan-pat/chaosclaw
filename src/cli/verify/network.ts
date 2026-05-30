@@ -68,6 +68,7 @@ export function registerNetworkCommand(verify: Command): void {
         process.exit(4)
       }
 
+      // Infer the protocol from the target URL if --protocol was not specified.
       const protocol = resolveProtocol(opts.target, opts.protocol)
       if (!VALID_PROTOCOLS.includes(protocol as Protocol)) {
         console.error(`\nError\n  --protocol must be one of: ${VALID_PROTOCOLS.join(', ')}. Got: "${opts.protocol}"`)
@@ -81,6 +82,7 @@ export function registerNetworkCommand(verify: Command): void {
         process.exit(4)
       }
 
+      // Build the probe command once before cluster operations begin.
       const connectTimeoutS = parseInt(opts.connectTimeout, 10)
       const probeCommand = buildProbeCommand(opts.target, protocol as Protocol, connectTimeoutS)
 
@@ -99,6 +101,7 @@ export function registerNetworkCommand(verify: Command): void {
       const cleanup = new CleanupManager(kc)
       const builder = new EvidenceBuilder({ clusterContext, startedAt: new Date().toISOString() })
       const startedAt = new Date().toISOString()
+      // Encode source pod and target in the scenario ID for a human-readable evidence trail.
       const scenarioId = `network:${basename(opts.from)}→${opts.target}`
 
       if (opts.format !== 'json') {
@@ -121,14 +124,17 @@ export function registerNetworkCommand(verify: Command): void {
       let alertJson: string | undefined
 
       try {
+        // Submit the pod, wait until it is Running, then run the probe command inside it.
         podName = await submitPod(kc, opts.namespace, injected)
         await waitForPodRunning(kc, opts.namespace, podName, podTimeoutMs)
 
         const windowStart = new Date().toISOString()
+        // Measure probe response time to include in the evidence artifact.
         const probeStartMs = Date.now()
         const execResult = await execCapturing(kc, opts.namespace, podName, container, probeCommand, execTimeoutMs)
         const responseTimeMs = Date.now() - probeStartMs
 
+        // Interpret the probe command exit code and stdout to determine reachability.
         const { reachable, httpStatus, errorType } = interpretProbeResult(
           protocol as Protocol, execResult.result, execResult.exitCode, execResult.stdout,
         )
@@ -144,6 +150,7 @@ export function registerNetworkCommand(verify: Command): void {
           stderr: execResult.stderr,
         })
 
+        // If an alert source is configured, poll for a correlated alert after the probe.
         if (opts.alertSource !== 'none') {
           const alert = await alertSource.pollForAlert(opts.namespace, 'chaosclaw-test-', windowStart, observationWindowMs)
           if (alert) {
@@ -157,6 +164,7 @@ export function registerNetworkCommand(verify: Command): void {
         likelyIssue = 'Kubernetes API error — check cluster connectivity and RBAC'
       }
 
+      // Determine the Pass/Fail/Error verdict by comparing observed outcome to the expectation.
       const status = observedOutcome === 'api_error' ? 'Error' as const
         : observedOutcome === opts.expect ? 'Pass' as const
         : 'Fail' as const
@@ -246,6 +254,7 @@ function buildProbeCommand(target: string, protocol: Protocol, connectTimeoutS: 
   switch (protocol) {
     case 'http':
     case 'https':
+      // Suppress body output and write only http_code|time_total so stdout is easy to parse.
       return [
         'curl', '-s', '-o', '/dev/null',
         '-w', '%{http_code}|%{time_total}',
@@ -254,6 +263,7 @@ function buildProbeCommand(target: string, protocol: Protocol, connectTimeoutS: 
         target,
       ]
     case 'tcp': {
+      // Split the target at the last colon to separate host from port.
       const lastColon = target.lastIndexOf(':')
       const host = target.slice(0, lastColon)
       const port = target.slice(lastColon + 1)
@@ -277,11 +287,12 @@ function interpretProbeResult(
   if (protocol === 'http' || protocol === 'https') {
     // curl exits 0 if it got a response (even 4xx/5xx)
     if (result === 'succeeded') {
+      // Parse the http_code from the first segment of the pipe-delimited stdout.
       const parts = stdout.trim().split('|')
       const httpStatus = parts[0] ? parseInt(parts[0], 10) : undefined
       return { reachable: true, httpStatus }
     }
-    // Distinguish common curl exit codes
+    // Distinguish common curl exit codes to give more actionable error information.
     const errorType = exitCode === 6 ? 'dns_failure'
       : exitCode === 7 ? 'refused'
       : exitCode === 28 ? 'timeout'
@@ -294,6 +305,7 @@ function interpretProbeResult(
   return { reachable: false, errorType: result === 'timeout' ? 'timeout' : 'refused_or_unreachable' }
 }
 
+// Return a targeted diagnostic hint based on whether the probe was more or less permissive than expected.
 function diagnoseNetwork(expected: NetworkExpect, observed: string): string {
   if (expected === 'unreachable' && observed === 'reachable') {
     return 'Target is reachable — network policy or firewall rule is missing or not enforced'

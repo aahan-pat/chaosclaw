@@ -1,3 +1,5 @@
+// Detects installed runtime security DaemonSets (Falco, KubeArmor, Tetragon, Tracee)
+// and reports node coverage, distinguishing detection-only tools from enforcement-capable ones.
 import * as k8s from '@kubernetes/client-node'
 import type { ReconFinding, ReconOptions, ReconToolResult } from '../../types/recon.js'
 
@@ -24,9 +26,11 @@ export class RuntimeAgentReconEngine {
     const appsApi = this.kc.makeApiClient(k8s.AppsV1Api)
 
     try {
+      // Fetch all DaemonSets cluster-wide in a single call to avoid per-namespace round trips.
       const response = await appsApi.listDaemonSetForAllNamespaces()
       const daemonsets = response.items
 
+      // Match each known agent name against the DaemonSet inventory and capture readiness.
       const agents: AgentStatus[] = Object.entries(KNOWN_AGENTS).map(([agentName, knownNames]) => {
         const ds = daemonsets.find(d => knownNames.includes(d.metadata?.name ?? ''))
         if (!ds) return { name: agentName, detected: false }
@@ -68,6 +72,7 @@ export class RuntimeAgentReconEngine {
     const findings: ReconFinding[] = []
     const detected = agents.filter(a => a.detected)
 
+    // No agents at all is a HIGH finding — runtime behavioral detection is completely absent.
     if (detected.length === 0) {
       findings.push({
         severity: 'HIGH',
@@ -77,6 +82,7 @@ export class RuntimeAgentReconEngine {
       return findings
     }
 
+    // Report each detected agent with its node coverage as an INFO finding.
     for (const agent of detected) {
       const coverage = agent.readyNodes === agent.desiredNodes
         ? 'full node coverage'
@@ -88,10 +94,12 @@ export class RuntimeAgentReconEngine {
       })
     }
 
+    // Check whether an LSM-capable enforcement tool is present alongside Falco.
     const hasFalco = agents.find(a => a.name === 'Falco')?.detected
     const hasLsm = agents.find(a => a.name === 'KubeArmor')?.detected
       || agents.find(a => a.name === 'Tetragon')?.detected
 
+    // Falco alone only detects — warn when no enforcement-capable tool is present.
     if (hasFalco && !hasLsm) {
       findings.push({
         severity: 'WARN',

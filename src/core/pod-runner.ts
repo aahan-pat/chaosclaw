@@ -24,8 +24,10 @@ export async function submitPod(
   namespace: string,
   manifest: Record<string, unknown>,
 ): Promise<string> {
+  // Build a namespaced Pod client from the active kubeconfig credentials.
   const coreApi = kc.makeApiClient(k8s.CoreV1Api)
   const created = await coreApi.createNamespacedPod({ namespace, body: manifest as k8s.V1Pod })
+  // The server-assigned name is required for subsequent wait/exec/cleanup calls.
   const name = created.metadata?.name
   if (!name) throw new Error('Pod was created but the server returned no name')
   return name
@@ -43,12 +45,15 @@ export async function waitForPodRunning(
   timeoutMs: number,
 ): Promise<void> {
   const coreApi = kc.makeApiClient(k8s.CoreV1Api)
+  // Record the absolute deadline so the loop terminates even if API calls are slow.
   const deadline = Date.now() + timeoutMs
   for (;;) {
     const pod = await coreApi.readNamespacedPod({ name, namespace })
     const phase = pod.status?.phase
+    // Require all containers to be ready, not just the pod phase, before returning.
     const allReady = pod.status?.containerStatuses?.every(cs => cs.ready) ?? false
     if (phase === 'Running' && allReady) return
+    // Terminal phases mean the pod will never become exec-able — bail out immediately.
     if (phase === 'Failed' || phase === 'Succeeded') {
       throw new Error(`Pod ${name} entered terminal phase ${phase} before becoming ready`)
     }
@@ -93,6 +98,7 @@ export async function execCapturing(
   })
 
   return new Promise<ExecOutcome>((resolve, reject) => {
+    // Resolve as 'timeout' after timeoutMs so the caller always gets a result within the budget.
     const timer = setTimeout(() => {
       resolve({
         result: 'timeout',
@@ -108,6 +114,7 @@ export async function execCapturing(
       false,  // tty
       (status: k8s.V1Status) => {
         clearTimeout(timer)
+        // Extract the numeric exit code from the status cause list; fall back to 0 on Success.
         const exitCodeStr = status.details?.causes?.find(c => c.reason === 'ExitCode')?.message
         const exitCode = exitCodeStr !== undefined
           ? parseInt(exitCodeStr, 10)
@@ -115,12 +122,15 @@ export async function execCapturing(
         resolve({
           result: exitCode === 0 ? 'succeeded' : 'failed',
           exitCode,
+          // Truncate output to avoid bloating the evidence artifact with excessive output.
           stdout: stdoutBuf.slice(0, STDOUT_MAX_BYTES),
           stderr: stderrBuf.slice(0, STDERR_MAX_BYTES),
         })
       },
     ).catch((err: unknown) => {
       clearTimeout(timer)
+      // A 403 from the exec endpoint means RBAC blocks pods/exec — report it as 'denied'
+      // so the caller can distinguish an access control finding from an infrastructure failure.
       const statusCode = (err as { statusCode?: number }).statusCode
         ?? (err as { code?: number }).code
       if (statusCode === 403) {
@@ -154,6 +164,7 @@ export async function ensureNamespace(kc: k8s.KubeConfig, namespace: string): Pr
   try {
     await coreApi.createNamespace({ body: { apiVersion: 'v1', kind: 'Namespace', metadata: { name: namespace } } })
   } catch (err: unknown) {
+    // 409 Conflict means the namespace already exists — that is the desired state, so ignore it.
     const code = (err as { code?: number }).code ?? (err as { statusCode?: number }).statusCode
     if (code !== 409) throw err
   }
@@ -166,12 +177,14 @@ export async function loadPodManifest(filePath: string): Promise<Record<string, 
   try {
     content = await readFile(filePath, 'utf-8')
   } catch {
+    // Exit immediately with a user-friendly message instead of throwing an unhandled error.
     console.error(`\nError\n  Could not read pod manifest: ${filePath}`)
     process.exit(4)
   }
 
   let parsed: unknown
   try {
+    // Use the Kubernetes client's YAML parser so both YAML and JSON manifests are accepted.
     parsed = k8s.loadYaml(content)
   } catch {
     console.error(`\nError\n  Could not parse manifest (expected YAML or JSON): ${filePath}`)
@@ -183,6 +196,7 @@ export async function loadPodManifest(filePath: string): Promise<Record<string, 
     process.exit(4)
   }
 
+  // Enforce Pod-only constraint before returning, since the executor only supports Pod creation.
   const manifest = parsed as Record<string, unknown>
   if (manifest['kind'] !== 'Pod') {
     console.error(`\nError\n  Only Pod manifests are supported. Found kind: ${manifest['kind'] ?? 'unknown'}`)

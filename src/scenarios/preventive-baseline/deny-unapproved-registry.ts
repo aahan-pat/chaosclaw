@@ -1,3 +1,4 @@
+// Scenario: verify that the cluster rejects images from registries not on the approved list.
 import type { ScenarioDefinition } from '../../types/scenario.js'
 
 const PACK_ID = 'preventive-baseline'

@@ -19,6 +19,7 @@ export function registerTopologyCommand(recon: Command): void {
       format: string
       output?: string
     }) => {
+      // Pass an optional pre-built graph path so operators can reuse an existing survey.
       const engine = new TopologyReconEngine(opts.graph)
 
       let result
@@ -41,15 +42,18 @@ export function registerTopologyCommand(recon: Command): void {
       field('Namespace', opts.namespace)
       if (opts.graph) field('Graph Source', opts.graph)
 
+      // Error exits with code 2 (setup failure); skip exits with 0 (tool not found is non-fatal).
       if (result.status === 'skip' || result.status === 'error') {
         renderReconFindings(result.findings)
         blank()
         process.exit(result.status === 'error' ? 2 : 0)
       }
 
+      // Cast the data payload to the known stats shape for rendering.
       const stats = (result.data as { stats?: TopologyStats }).stats
 
       if (stats) {
+        // Sort resource kinds by count descending for a quick visual inventory.
         const kinds = Object.entries(stats.byKind).sort((a, b) => b[1] - a[1])
         if (kinds.length > 0) {
           section(`Resources (${stats.nodeCount} nodes, ${stats.edgeCount} edges)`)
@@ -72,6 +76,7 @@ export function registerTopologyCommand(recon: Command): void {
 
         if (stats.secretMounts.length > 0) {
           section(`Secret Mounts (${stats.secretMounts.length})`)
+          // Cap output at 20 entries to avoid flooding the terminal with very large clusters.
           for (const m of stats.secretMounts.slice(0, 20)) {
             indent(`${m.podId}  →  ${m.secretId}`)
           }

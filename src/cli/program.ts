@@ -29,6 +29,7 @@ import { registerTopologyCommand } from './recon/topology.js'
 export function buildProgram(): Command {
   const program = new Command()
 
+  // Configure the root command with its name, description, and version string.
   program
     .name('chaosclaw')
     .description('Deterministic CLI for Kubernetes Continuous Control Verification')
@@ -46,6 +47,7 @@ export function buildProgram(): Command {
     .command('verify')
     .description('Run verification checks against a Kubernetes cluster')
 
+  // Register each verify subcommand onto the shared parent command.
   registerPreflightCommand(verify)
   registerRunCommand(verify)
   registerExecCommand(verify)
@@ -66,6 +68,7 @@ export function buildProgram(): Command {
     .command('recon')
     .description('Survey cluster security posture before pentest execution')
 
+  // Register all recon subcommands in the order they are typically run during a pentest.
   registerInitCommand(reconCmd)
   registerWebhooksCommand(reconCmd)
   registerPoliciesCommand(reconCmd)

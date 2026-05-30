@@ -45,6 +45,7 @@ export function registerPoliciesCommand(recon: Command): void {
         process.exit(0)
       }
 
+      // Cast the opaque data field to its known shape for display.
       const data = result.data as { engine?: PolicyEngine; policies?: PolicyInfo[] }
       const detectedEngine = data.engine ?? 'none'
       const policies = data.policies ?? []
@@ -58,9 +59,11 @@ export function registerPoliciesCommand(recon: Command): void {
       }
 
       if (policies.length > 0) {
+        // Use engine-specific terminology for the section heading to match the Kubernetes resource names.
         section(`${detectedEngine === 'kyverno' ? 'ClusterPolicies' : 'ConstraintTemplates'} (${policies.length})`)
         for (const p of policies) {
           const action = p.validationFailureAction
+          // Mark audit-only policies inline so operators can immediately see which ones don't enforce.
           const mark = action?.toLowerCase() === 'audit' ? chalk.yellow('  ← audit only') : ''
           const actionDisplay = action ? `${action.padEnd(12)}` : '—'.padEnd(12)
           indent(`${p.name.padEnd(40)} ${actionDisplay}${mark}`)

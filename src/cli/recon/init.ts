@@ -34,6 +34,7 @@ export function registerInitCommand(recon: Command): void {
         process.exit(2)
       }
 
+      // Emit the raw result for CI pipelines that consume JSON output.
       if (opts.format === 'json') {
         console.log(JSON.stringify(result, null, 2))
         process.exit(result.steps.some(s => s.status === 'failed') ? 2 : 0)
@@ -43,6 +44,7 @@ export function registerInitCommand(recon: Command): void {
       field('Cluster Context', clusterContext)
       field('Namespace', opts.namespace)
 
+      // Inform the operator when the namespace already existed so they know init was idempotent.
       if (result.alreadyExisted) {
         blank()
         console.log(chalk.yellow('Warning'))
@@ -51,6 +53,7 @@ export function registerInitCommand(recon: Command): void {
 
       section('Setup')
       for (const step of result.steps) {
+        // Colour-code steps to make failures and idempotent steps visually distinct.
         if (step.status === 'failed') {
           indent(`${chalk.red('[ERROR]')} ${step.name}`)
           if (step.detail) indent(step.detail, 9)
@@ -61,6 +64,7 @@ export function registerInitCommand(recon: Command): void {
         }
       }
 
+      // Locate the first failed step and surface its detail message before exiting with code 2.
       const failed = result.steps.find(s => s.status === 'failed')
       if (failed) {
         blank()

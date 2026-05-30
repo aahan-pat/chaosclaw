@@ -39,10 +39,12 @@ export function registerRuntimeAgentsCommand(recon: Command): void {
         process.exit(0)
       }
 
+      // Cast the data payload to access the strongly-typed agent list.
       const data = result.data as { daemonsetsScanned?: number; agents?: AgentStatus[] }
       section(`Runtime Detection`)
       for (const agent of data.agents ?? []) {
         if (agent.detected) {
+          // Show partial coverage inline so under-rolled DaemonSets are immediately visible.
           const coverage = agent.readyNodes === agent.desiredNodes
             ? 'full node coverage'
             : `${agent.readyNodes}/${agent.desiredNodes} nodes`
