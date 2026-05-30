@@ -3,7 +3,7 @@
 // file a thin composition root rather than a monolithic command handler.
 import { Command } from 'commander'
 import { registerPreflightCommand } from './verify/preflight.js'
-import { registerRunCommand } from './verify/run.js'
+import { registerRunCommand } from './verify/run/index.js'
 import { registerExecCommand } from './verify/exec.js'
 import { registerNetworkCommand } from './verify/network.js'
 import { registerIdentityCommand } from './verify/identity.js'

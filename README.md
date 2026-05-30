@@ -4,6 +4,20 @@ ChaosClaw is a safe, namespace-scoped execution environment for Kubernetes secur
 
 All execution is confined to a dedicated, RBAC-enforced test namespace. ChaosClaw structurally cannot touch any other namespace in the cluster.
 
+## Installation
+
+Requires Node.js ≥ 22.16.0.
+
+```bash
+npm install -g chaosclaw
+```
+
+To try without installing:
+
+```bash
+npx chaosclaw --help
+```
+
 ## Quick start
 
 ```bash
